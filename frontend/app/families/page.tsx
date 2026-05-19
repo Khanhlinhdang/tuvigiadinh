@@ -24,6 +24,8 @@ export default function FamiliesPage() {
   }, []);
 
   useEffect(() => {
+    // Defer the async load so React's compiler does not treat the resulting
+    // state updates as synchronous effect work.
     const timer = window.setTimeout(() => {
       loadFamilies();
     }, 0);

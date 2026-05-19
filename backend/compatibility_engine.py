@@ -545,13 +545,18 @@ def build_executive_summary(
     This gives users quick value before reading the long AI/offline report and
     reduces the need to repeatedly call the AI just to understand the result.
     """
-    best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if pairs_analysis else None
+    has_pairs = len(pairs_analysis) > 0
+    best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if has_pairs else None
     attention_pair = (
         min(pairs_analysis, key=lambda p: p.get("overall_score", 0))
         if len(pairs_analysis) > 1
         else None
     )
-    dominant_hanh = max(energy_distribution, key=energy_distribution.get) if energy_distribution else ""
+    dominant_hanh = (
+        max(energy_distribution, key=energy_distribution.get)
+        if len(energy_distribution) > 0
+        else ""
+    )
     energy_keeper = energy_roles[0] if energy_roles else None
 
     sinh_pairs = [p for p in pairs_analysis if "sinh" in _sinh_khac_type(p)]
