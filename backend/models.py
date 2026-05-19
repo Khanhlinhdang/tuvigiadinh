@@ -34,6 +34,19 @@ class FamilyMember(Base):
     birth_day = Column(Integer, nullable=True)
     birth_hour = Column(String(10), nullable=True)  # Giờ sinh (chi)
 
+    # Birth calendar: "solar" (dương lịch) or "lunar" (âm lịch).
+    # The raw birth_year/month/day above are stored in the user's chosen
+    # calendar. The corresponding date in the other calendar is computed
+    # automatically and persisted in the columns below.
+    birth_calendar = Column(String(10), nullable=True, default="solar")
+    solar_year = Column(Integer, nullable=True)
+    solar_month = Column(Integer, nullable=True)
+    solar_day = Column(Integer, nullable=True)
+    lunar_year = Column(Integer, nullable=True)
+    lunar_month = Column(Integer, nullable=True)
+    lunar_day = Column(Integer, nullable=True)
+    is_leap_month = Column(Integer, nullable=True, default=0)  # 0/1 flag
+
     # Computed fields
     thien_can = Column(String(10), nullable=True)
     dia_chi = Column(String(10), nullable=True)
