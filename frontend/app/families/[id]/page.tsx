@@ -675,7 +675,7 @@ function ExecutiveSummaryView({
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
         <InsightList title="3 điểm mạnh" icon="✅" items={summary.strengths} color="#22c55e" />
         <InsightList title="Điểm cần chú ý" icon="⚠️" items={summary.risks} color="#f59e0b" />
-        <InsightList title="Việc nên làm ngay" icon="🎯" items={summary.actions.slice(0, 5)} color="#8b5cf6" />
+        <InsightList title="Việc nên làm ngay" icon="🎯" items={summary.actions} color="#8b5cf6" />
       </div>
     </div>
   );
@@ -1008,8 +1008,12 @@ function AnalysisView({
         // User cancelled or browser rejected share; fall back to clipboard.
       }
     }
-    await navigator.clipboard?.writeText(text);
-    alert("Đã sao chép tóm tắt để chia sẻ.");
+    try {
+      await navigator.clipboard?.writeText(text);
+      alert("Đã sao chép tóm tắt để chia sẻ.");
+    } catch {
+      alert("Không thể sao chép tự động. Hãy sao chép nội dung tóm tắt trực tiếp trên màn hình.");
+    }
   }
 
   return (
