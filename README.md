@@ -105,7 +105,7 @@ De dung AI that (mac dinh OpenAI GPT-5.4 mini):
 ```bash
 # backend/.env
 OPENAI_API_KEY=sk-...
-OPENAI_MODEL=gpt-5.4-mini
+OPENAI_MODEL=gpt-5.4
 ```
 
 ---

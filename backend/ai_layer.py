@@ -17,7 +17,7 @@ from data_sources import all_sources, citations_for, explain
 load_dotenv()
 
 OPENAI_API_KEY = os.getenv("OPENAI_API_KEY", "")
-OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4-mini")
+OPENAI_MODEL = os.getenv("OPENAI_MODEL", "gpt-5.4")
 
 
 def has_openai_key() -> bool:
@@ -283,7 +283,7 @@ LÝ DO chứ không chỉ ghi nhãn."""
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 5500
+                    "max_completion_tokens": 5500
                 }
             )
             data = response.json()
@@ -384,7 +384,7 @@ hành nào sinh/khắc hành nào, địa chi có xung/hợp gì."""
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 700
+                    "max_completion_tokens": 700
                 }
             )
             data = response.json()
