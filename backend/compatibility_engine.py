@@ -448,6 +448,15 @@ def analyze_family(members: List[dict]) -> dict:
             "family_overall_score": 50,
             "family_dynamics": "Cần ít nhất 2 thành viên để phân tích quan hệ gia đình.",
             "energy_distribution": {},
+            "executive_summary": {
+                "strengths": [],
+                "risks": [],
+                "actions": ["Thêm ít nhất 2 thành viên để bắt đầu phân tích tương hợp."],
+                "energy_keeper": None,
+                "best_pair": None,
+                "attention_pair": None,
+                "positioning_note": "Kết quả mang tính tham khảo văn hoá, hỗ trợ hiểu nhau và cải thiện giao tiếp gia đình.",
+            },
         }
 
     pairs_analysis = []
@@ -484,12 +493,109 @@ def analyze_family(members: List[dict]) -> dict:
         )
         energy_roles.append({"name": member["name"], "role": role})
 
+    executive_summary = build_executive_summary(
+        members, pairs_analysis, family_overall_score, energy_distribution, energy_roles
+    )
+
     return {
         "pairs_analysis": pairs_analysis,
         "family_overall_score": family_overall_score,
         "family_dynamics": family_dynamics,
         "energy_distribution": energy_distribution,
         "energy_roles": energy_roles,
+        "executive_summary": executive_summary,
+    }
+
+
+def _pair_summary(pair: dict | None) -> dict | None:
+    if not pair:
+        return None
+    sinh_khac = pair.get("sinh_khac") or {}
+    return {
+        "member1_name": pair.get("member1_name", ""),
+        "member2_name": pair.get("member2_name", ""),
+        "relationship_type": pair.get("relationship_type", ""),
+        "overall_score": pair.get("overall_score", 0),
+        "compatibility_level": pair.get("compatibility_level", ""),
+        "headline": sinh_khac.get("headline") or pair.get("summary", ""),
+    }
+
+
+def build_executive_summary(
+    members: List[dict],
+    pairs_analysis: List[dict],
+    family_overall_score: int,
+    energy_distribution: dict,
+    energy_roles: List[dict],
+) -> dict:
+    """Build a short, UI-friendly summary that is cheap to compute.
+
+    This gives users quick value before reading the long AI/offline report and
+    reduces the need to repeatedly call the AI just to understand the result.
+    """
+    best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0), default=None)
+    attention_pair = min(pairs_analysis, key=lambda p: p.get("overall_score", 0), default=None)
+    dominant_hanh = max(energy_distribution, key=energy_distribution.get) if energy_distribution else ""
+    energy_keeper = energy_roles[0] if energy_roles else None
+
+    sinh_pairs = [p for p in pairs_analysis if "sinh" in ((p.get("sinh_khac") or {}).get("type") or "")]
+    khac_pairs = [p for p in pairs_analysis if "khac" in ((p.get("sinh_khac") or {}).get("type") or "")]
+    xung_pairs = [
+        p for p in pairs_analysis
+        if (p.get("chi_compatibility") or {}).get("primary_relation") == "xung"
+    ]
+
+    strengths = []
+    if family_overall_score >= 65:
+        strengths.append("Nền tảng tương hợp gia đình khá tốt, dễ tạo đồng thuận nếu duy trì giao tiếp đều đặn.")
+    elif family_overall_score >= 45:
+        strengths.append("Gia đình có nền tảng ổn định, các khác biệt vẫn có thể chuyển thành bổ trợ nếu biết phân vai rõ.")
+    else:
+        strengths.append("Gia đình có nhiều khác biệt, đây là cơ hội để mỗi người học cách lắng nghe và trưởng thành.")
+    if dominant_hanh:
+        strengths.append(f"Năng lượng nổi bật là hành {dominant_hanh}, tạo màu sắc riêng cho nhịp sống gia đình.")
+    if best_pair:
+        strengths.append(
+            f"Cặp thuận lợi nhất hiện là {best_pair['member1_name']} - {best_pair['member2_name']} "
+            f"({best_pair['overall_score']}/100)."
+        )
+    if sinh_pairs:
+        strengths.append(f"Có {len(sinh_pairs)} cặp tương sinh, phù hợp để cùng học hỏi, hỗ trợ và phát triển dài hạn.")
+    strengths = strengths[:3]
+
+    risks = []
+    if khac_pairs:
+        risks.append(f"Có {len(khac_pairs)} cặp tương khắc cần chú ý cách nói chuyện và ranh giới cá nhân.")
+    if xung_pairs:
+        risks.append(f"Có {len(xung_pairs)} cặp địa chi xung, nên tránh quyết định nóng khi cảm xúc cao.")
+    if attention_pair and attention_pair.get("overall_score", 50) < 45:
+        risks.append(
+            f"Cặp cần điều hòa nhất là {attention_pair['member1_name']} - {attention_pair['member2_name']} "
+            f"({attention_pair['overall_score']}/100)."
+        )
+    if not risks:
+        risks.append("Chưa thấy xung khắc nổi bật, nhưng vẫn nên duy trì thói quen lắng nghe và cảm ơn nhau.")
+    risks = risks[:3]
+
+    actions = [
+        "Mỗi tuần chọn một buổi trò chuyện gia đình không điện thoại trong 20-30 phút.",
+        "Với cặp có điểm thấp nhất, thống nhất một nguyên tắc tranh luận: không ngắt lời, không kết luận khi đang nóng.",
+        "Dùng cặp thuận lợi nhất làm 'cầu nối' để lan tỏa năng lượng tích cực trong nhà.",
+        "Khi đọc báo cáo dài, ưu tiên biến mỗi khuyến nghị thành một hành động nhỏ có thể làm ngay trong tuần.",
+        "Lưu kết quả hiện tại để so sánh lại sau khi gia đình thay đổi hoặc bước sang năm mới.",
+    ]
+
+    return {
+        "strengths": strengths,
+        "risks": risks,
+        "actions": actions,
+        "energy_keeper": energy_keeper,
+        "best_pair": _pair_summary(best_pair),
+        "attention_pair": _pair_summary(attention_pair),
+        "positioning_note": (
+            "Kết quả mang tính tham khảo văn hoá - không phải tiên tri tuyệt đối; "
+            "mục tiêu chính là giúp gia đình hiểu nhau, giao tiếp tốt hơn và nuôi dưỡng quan hệ bền vững."
+        ),
     }
 
 

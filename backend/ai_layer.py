@@ -23,12 +23,16 @@ def has_openai_key() -> bool:
     return bool(OPENAI_API_KEY) and OPENAI_API_KEY.startswith("sk-")
 
 
-async def get_ai_interpretation(family_data: dict, analysis_data: dict) -> str:
+async def get_ai_interpretation(
+    family_data: dict,
+    analysis_data: dict,
+    use_openai: bool = True,
+) -> str:
     """
     Get AI interpretation of family compatibility analysis
     Uses structured prompt to ensure consistent, meaningful output
     """
-    if not has_openai_key():
+    if not use_openai or not has_openai_key():
         return generate_fallback_interpretation(family_data, analysis_data)
 
     current_year = datetime.now().year
