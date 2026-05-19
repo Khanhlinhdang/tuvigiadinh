@@ -418,9 +418,25 @@ async def family_chat(
 
     members_data = [member_to_dict(m) for m in family.members]
 
-    # Build analysis context
+    # Build analysis context with pair-by-pair summary so the model can
+    # reference specific Sinh-Khắc relationships when answering.
     analysis = analyze_family(members_data)
-    analysis_context = f"Điểm tổng hợp gia đình: {analysis['family_overall_score']}/100. {analysis['family_dynamics']}"
+    score = analysis.get("family_overall_score", 50)
+    dynamics = analysis.get("family_dynamics", "")
+    pair_lines = []
+    for p in analysis.get("pairs_analysis", []):
+        sk = (p.get("sinh_khac") or {}).get("headline", "")
+        pair_lines.append(
+            f"- {p.get('member1_name','?')} ↔ {p.get('member2_name','?')} "
+            f"({p.get('relationship_type') or 'quan hệ'}): "
+            f"{p.get('overall_score','?')}/100 - {p.get('compatibility_level','')}"
+            + (f" | {sk}" if sk else "")
+        )
+    pair_block = "\n".join(pair_lines) if pair_lines else "(chưa đủ cặp để phân tích)"
+    analysis_context = (
+        f"Điểm tổng hợp gia đình: {score}/100. {dynamics}\n"
+        f"Phân tích các cặp quan hệ:\n{pair_block}"
+    )
 
     family_data = {
         "name": family.name,

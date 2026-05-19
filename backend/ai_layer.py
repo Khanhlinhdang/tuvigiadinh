@@ -31,57 +31,176 @@ async def get_ai_interpretation(family_data: dict, analysis_data: dict) -> str:
     if not has_openai_key():
         return generate_fallback_interpretation(family_data, analysis_data)
 
-    # Build structured prompt
+    current_year = datetime.now().year
+    year_can_chi = _year_can_chi(current_year)
+
+    def _fmt_date(m: dict) -> str:
+        """Format both solar and lunar birth dates if available."""
+        parts = []
+        if m.get("solar_year") and m.get("solar_month") and m.get("solar_day"):
+            parts.append(
+                f"dương lịch {m['solar_day']:02d}/{m['solar_month']:02d}/{m['solar_year']}"
+            )
+        if m.get("lunar_year") and m.get("lunar_month") and m.get("lunar_day"):
+            leap = " (nhuận)" if m.get("is_leap_month") else ""
+            parts.append(
+                f"âm lịch {m['lunar_day']:02d}/{m['lunar_month']:02d}/{m['lunar_year']}{leap}"
+            )
+        if not parts:
+            parts.append(f"năm sinh {m.get('birth_year', '?')}")
+        return ", ".join(parts)
+
+    # Build structured prompt with rich member detail
     structured_data = {
         "gia_dinh": family_data["name"],
+        "nam_xem": {"nam": current_year, "can_chi": year_can_chi},
         "thanh_vien": [
             {
                 "ten": m["name"],
                 "vai_tro": m["role"],
-                "can_chi": f"{m['thien_can']} {m['dia_chi']}",
-                "ngu_hanh": m["ngu_hanh"],
+                "gioi_tinh": m.get("gender", ""),
+                "ngay_sinh": _fmt_date(m),
+                "can_chi": f"{m.get('thien_can','')} {m.get('dia_chi','')}".strip(),
+                "ngu_hanh_can": m.get("ngu_hanh", ""),
                 "nap_am": m.get("nap_am", ""),
+                "vai_tro_nang_luong": m.get("energy_role", ""),
             }
             for m in family_data["members"]
         ],
         "phan_tich_tuong_hop": [
             {
                 "cap": f"{p['member1_name']} - {p['member2_name']}",
-                "quan_he": f"{p['member1_role']} - {p['member2_role']}",
+                "loai_quan_he": p.get("relationship_type") or f"{p['member1_role']} - {p['member2_role']}",
                 "diem_so": p["overall_score"],
                 "muc_do": p["compatibility_level"],
-                "chi_tiet": {
-                    "can": p["can_compatibility"]["relation"],
-                    "chi": p["chi_compatibility"]["primary_relation"],
-                    "hanh": p["hanh_compatibility"]["relation"],
-                }
+                "thien_can": p["can_compatibility"].get("description") or p["can_compatibility"].get("relation"),
+                "dia_chi": p["chi_compatibility"].get("description") or p["chi_compatibility"].get("primary_relation"),
+                "ngu_hanh": p["hanh_compatibility"].get("description") or p["hanh_compatibility"].get("relation"),
+                "sinh_khac": (p.get("sinh_khac") or {}).get("headline", ""),
             }
-            for p in analysis_data["pairs_analysis"]
+            for p in analysis_data.get("pairs_analysis", [])
         ],
-        "diem_tong_gia_dinh": analysis_data["family_overall_score"],
+        "phan_bo_ngu_hanh": analysis_data.get("energy_distribution", {}),
+        "diem_tong_gia_dinh": analysis_data.get("family_overall_score"),
+        "tong_quan_dong_luc": analysis_data.get("family_dynamics", ""),
     }
 
-    system_prompt = """Bạn là chuyên gia tử vi và tâm lý gia đình Đông phương với hơn 20 năm kinh nghiệm.
-Nhiệm vụ của bạn là diễn giải dữ liệu phân tích can chi, ngũ hành gia đình theo cách:
-- Khoa học, tích cực, mang tính xây dựng
-- Tập trung vào self-awareness và cải thiện quan hệ
-- KHÔNG đưa ra tiên tri tiêu cực hay kết luận tuyệt đối
-- Đưa ra lời khuyên thực tế, có thể áp dụng được
-- Viết bằng tiếng Việt, giọng văn ấm áp, chuyên nghiệp
-- Dài khoảng 300-400 từ"""
+    # Attach this year's forecast snapshot so model can reference vận khí năm
+    annual = analysis_data.get("annual_forecast") or {}
+    if annual.get("member_forecasts"):
+        structured_data["du_bao_nam"] = {
+            "nam": annual.get("year", current_year),
+            "tom_tat_gia_dinh": annual.get("family_year_summary", ""),
+            "tung_thanh_vien": [
+                {
+                    "ten": mf.get("name"),
+                    "vai_tro": mf.get("role"),
+                    "ban_menh": mf.get("birth_can_chi"),
+                    "nam_can_chi": mf.get("year_can_chi"),
+                    "muc_do": mf.get("energy_level"),
+                    "thai_tue": mf.get("is_thai_tue"),
+                    "xung_nam": mf.get("is_xung"),
+                    "tom_tat": mf.get("forecast"),
+                }
+                for mf in annual["member_forecasts"]
+            ],
+        }
 
-    user_prompt = f"""Hãy phân tích và diễn giải dữ liệu tử vi gia đình sau:
+    system_prompt = (
+        "Bạn là chuyên gia tử vi - ngũ hành - thiên can địa chi và tâm lý "
+        "gia đình Đông phương với hơn 20 năm kinh nghiệm. Bạn viết phân "
+        "tích bằng tiếng Việt theo phong cách kết hợp giữa văn hóa Á Đông "
+        "truyền thống và tư duy hiện đại, mạch lạc, ấm áp, có chiều sâu, "
+        "tránh tiên tri tuyệt đối hay tiêu cực hoá. Mọi nhận định đều "
+        "được dẫn về hành động cụ thể, có thể áp dụng được trong đời sống.\n\n"
+        "Bắt buộc:\n"
+        "- Trả lời bằng MARKDOWN có cấu trúc rõ (heading #, ##, ###; bullet "
+        "  list; bảng |...|; blockquote >; đường ngăn ---).\n"
+        "- Phân tích phải dựa đúng vào dữ liệu Can-Chi, Ngũ hành, Nạp âm, "
+        "  vai trò, giới tính, độ tuổi của từng thành viên đã cho.\n"
+        "- TÙY BIẾN theo cấu trúc gia đình thực tế: số thành viên, vai trò "
+        "  (chồng/vợ/con/cha/mẹ/anh/chị/em), giới tính, tuổi để chọn nội "
+        "  dung phù hợp - không áp đặt một khuôn mẫu cứng.\n"
+        "- Luôn nhắc 'mang tính tham khảo văn hoá - không phải tiên tri "
+        "  tuyệt đối' ở phần đầu.\n"
+        "- Văn phong xây dựng, tôn trọng, hữu ích."
+    )
 
+    user_prompt = f"""Hãy phân tích TOÀN DIỆN tử vi - ngũ hành gia đình dưới đây
+dưới góc nhìn tử vi truyền thống, ngũ hành, thiên can - địa chi và quan
+niệm dân gian Á Đông. Năm cần phân tích là **{current_year} ({year_can_chi})**.
+
+Dữ liệu gia đình (JSON):
+```json
 {json.dumps(structured_data, ensure_ascii=False, indent=2)}
+```
 
-Hãy viết:
-1. Tổng quan động lực gia đình (2-3 câu)
-2. Điểm mạnh của gia đình này
-3. Những thách thức cần chú ý và cách vượt qua
-4. Lời khuyên tổng thể cho gia đình"""
+Yêu cầu cấu trúc bài viết (BẮT BUỘC dùng Markdown, đúng các heading bên dưới,
+nhưng TÙY BIẾN nội dung theo dữ liệu thật của gia đình):
+
+# Tổng quan cấu trúc gia đình
+- Mô tả ngắn cấu trúc gia đình theo Ngũ hành (ai sinh ai, ai khắc ai),
+  điểm đặc biệt (ví dụ: con đóng vai trò cân bằng, bố mẹ xung, v.v.).
+- Một câu nhắc tính tham khảo.
+
+# 1. Tổng quan lá số ngũ hành gia đình
+Với MỖI thành viên (lặp lại theo vai trò - tên):
+## {{Vai trò}} - {{Tên}}
+- Sinh: (ngày âm/dương)
+- Tuổi: Can Chi
+- Mệnh nạp âm
+- Tính khí thường (3-6 bullet)
+- Nhược điểm (2-4 bullet)
+
+# 2. Tổng vận gia đình năm {current_year} ({year_can_chi})
+- Thiên can - Địa chi - Nạp âm của năm
+- Bức tranh tổng thể, chu kỳ gia đình đang bước vào.
+
+# 3+. Phân tích chi tiết từng thành viên năm {current_year}
+Với MỖI thành viên (chồng, vợ, từng con, hoặc các vai trò khác đang có),
+tạo một section riêng (## {{Tên}} - {{Vai trò}}), gồm các tiểu mục:
+- ### Vận công việc - sự nghiệp
+- ### Tài chính
+- ### Tâm sinh lý
+- ### Tình cảm / quan hệ
+- ### Sức khỏe (lưu ý cơ quan cụ thể theo ngũ hành)
+Lưu ý:
+- Với trẻ nhỏ, thay "sự nghiệp" bằng "phát triển - giáo dục".
+- Tùy giới tính (nam/nữ) và vai trò mà chọn từ ngữ cho phù hợp.
+
+# Quan hệ vợ chồng năm {current_year} (chỉ khi có cặp vợ - chồng)
+- Đánh giá theo Thiên Can, Địa Chi, Ngũ hành.
+- Biểu hiện dễ gặp, điểm tích cực, lời khuyên cụ thể.
+
+# Quan hệ cha/mẹ - con (nếu có con)
+- Phân tích Sinh-Khắc giữa cha-con, mẹ-con từng cặp.
+
+# Quan hệ anh chị em (nếu có ≥ 2 con)
+- Phân tích Sinh-Khắc, Lục hợp/Tam hợp, đặc điểm song sinh nếu cùng năm.
+
+# Tài chính gia đình năm {current_year}
+# Nhà cửa - môi trường sống năm {current_year}
+# Tổng kết vận khí từng thành viên
+Trình bày dưới dạng BẢNG Markdown:
+
+| Thành viên | Điểm nổi bật {current_year} |
+| --- | --- |
+| ... | ... |
+
+# Kết luận toàn diện
+- Điểm mạnh lớn nhất
+- Thử thách lớn nhất
+- 4-6 lời khuyên hành động cụ thể cho cả gia đình
+
+Cuối bài: ghi một dòng in nghiêng nhắc tính tham khảo văn hoá.
+
+QUAN TRỌNG: Văn phong PHẢI thể hiện rõ sự khác biệt giữa các thành viên
+dựa trên Can-Chi, Ngũ hành, giới tính và vai trò của họ - không viết
+chung chung. Mỗi phần phải có ít nhất 4-6 câu, chi tiết, cụ thể, có
+chiều sâu, kèm gợi ý hành động."""
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=90.0) as client:
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
@@ -95,7 +214,7 @@ Hãy viết:
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 800
+                    "max_tokens": 3500
                 }
             )
             data = response.json()
@@ -114,14 +233,38 @@ async def get_ai_family_chat(family_data: dict, question: str, analysis_context:
     if not has_openai_key():
         return generate_fallback_chat_response(question, family_data, analysis_context)
 
+    def _fmt_date(m: dict) -> str:
+        parts = []
+        if m.get("solar_year") and m.get("solar_month") and m.get("solar_day"):
+            parts.append(
+                f"DL {m['solar_day']:02d}/{m['solar_month']:02d}/{m['solar_year']}"
+            )
+        if m.get("lunar_year") and m.get("lunar_month") and m.get("lunar_day"):
+            leap = " (nhuận)" if m.get("is_leap_month") else ""
+            parts.append(
+                f"AL {m['lunar_day']:02d}/{m['lunar_month']:02d}/{m['lunar_year']}{leap}"
+            )
+        if not parts:
+            parts.append(f"năm {m.get('birth_year', '?')}")
+        return ", ".join(parts)
+
+    current_year = datetime.now().year
+
     family_context = {
         "gia_dinh": family_data["name"],
+        "nam_hien_tai": current_year,
+        "nam_can_chi": _year_can_chi(current_year),
+        "so_thanh_vien": len(family_data.get("members", [])),
         "thanh_vien": [
             {
                 "ten": m["name"],
                 "vai_tro": m["role"],
-                "can_chi": f"{m['thien_can']} {m['dia_chi']}",
-                "ngu_hanh": m["ngu_hanh"],
+                "gioi_tinh": m.get("gender", ""),
+                "ngay_sinh": _fmt_date(m),
+                "can_chi": f"{m.get('thien_can','')} {m.get('dia_chi','')}".strip(),
+                "ngu_hanh": m.get("ngu_hanh", ""),
+                "nap_am": m.get("nap_am", ""),
+                "vai_tro_nang_luong": m.get("energy_role", ""),
             }
             for m in family_data["members"]
         ]
@@ -129,27 +272,36 @@ async def get_ai_family_chat(family_data: dict, question: str, analysis_context:
 
     system_prompt = """Bạn là AI Cố Vấn Gia Đình chuyên về tử vi và tâm lý Đông phương.
 Bạn hiểu sâu về:
-- Can Chi, Ngũ Hành và ảnh hưởng đến tính cách
-- Dynamics gia đình và quan hệ giữa các thành viên
-- Tâm lý hành vi dựa trên tri thức Đông phương
+- Can Chi, Ngũ Hành, Nạp âm và ảnh hưởng đến tính cách, vận khí
+- Dynamics gia đình và quan hệ giữa các thành viên dựa trên Sinh - Khắc
+- Tâm lý hành vi dựa trên tri thức Đông phương và hiện đại
 
 Nguyên tắc trả lời:
-- Tích cực, xây dựng, không tiêu cực hay đáng sợ
-- Dựa vào dữ liệu can chi thực tế của gia đình
-- Đưa ra lời khuyên cụ thể, thực tế
-- Viết bằng tiếng Việt, ấm áp và chuyên nghiệp
-- Trả lời ngắn gọn (150-250 từ)"""
+- BẮT BUỘC bám sát dữ liệu Can-Chi, Ngũ hành, nạp âm, giới tính, vai trò, tuổi
+  của TỪNG THÀNH VIÊN cụ thể trong gia đình đã cho. Khi đề cập đến một người,
+  hãy nhắc tên + can chi + ngũ hành của họ.
+- Tích cực, xây dựng, không tiêu cực hay tiên tri tuyệt đối.
+- Đưa ra lời khuyên cụ thể, thực tế, có thể áp dụng được.
+- Viết bằng Markdown (có bullet, đôi khi heading nhỏ nếu cần) - ấm áp, chuyên nghiệp.
+- Trả lời tập trung, không lan man (200-400 từ là vừa)."""
 
-    user_prompt = f"""Thông tin gia đình:
+    user_prompt = f"""Thông tin gia đình (BẮT BUỘC dùng làm căn cứ trả lời):
+```json
 {json.dumps(family_context, ensure_ascii=False, indent=2)}
+```
 
-Tóm tắt phân tích:
+Tóm tắt phân tích đã có:
 {analysis_context}
 
-Câu hỏi: {question}"""
+Câu hỏi của người dùng: {question}
+
+Hãy trả lời câu hỏi trên dựa trên dữ liệu thật của gia đình. Nếu câu hỏi
+hướng tới một thành viên cụ thể, hãy nêu rõ Can-Chi và Ngũ hành của họ
+trong câu trả lời. Nếu hỏi về quan hệ giữa hai người, hãy chỉ ra rõ
+hành nào sinh/khắc hành nào, địa chi có xung/hợp gì."""
 
     try:
-        async with httpx.AsyncClient(timeout=30.0) as client:
+        async with httpx.AsyncClient(timeout=45.0) as client:
             response = await client.post(
                 "https://api.openai.com/v1/chat/completions",
                 headers={
@@ -163,7 +315,7 @@ Câu hỏi: {question}"""
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 400
+                    "max_tokens": 700
                 }
             )
             data = response.json()
