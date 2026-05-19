@@ -81,3 +81,35 @@ body {
 .pulse-soft {
   animation: pulse-soft 2s ease-in-out infinite;
 }
+
+/* Markdown rendering */
+.tuvi-markdown > :first-child {
+  margin-top: 0;
+}
+.tuvi-markdown > :last-child {
+  margin-bottom: 0;
+}
+.tuvi-markdown-compact h1 {
+  font-size: 1.05rem;
+  margin-top: 0.75rem;
+  margin-bottom: 0.5rem;
+  padding-bottom: 0.25rem;
+}
+.tuvi-markdown-compact h2 {
+  font-size: 0.95rem;
+  margin-top: 0.6rem;
+  margin-bottom: 0.4rem;
+}
+.tuvi-markdown-compact h3 {
+  font-size: 0.875rem;
+  margin-top: 0.5rem;
+  margin-bottom: 0.3rem;
+}
+.tuvi-markdown-compact p,
+.tuvi-markdown-compact li {
+  font-size: 0.8rem;
+  line-height: 1.55;
+}
+.tuvi-markdown-compact hr {
+  margin: 0.75rem 0;
+}

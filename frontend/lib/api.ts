@@ -92,9 +92,25 @@ export interface FamilyAnalysis {
   annual_forecast?: FamilyForecast | null;
 }
 
+export interface ForecastSection {
+  key: string;
+  title: string;
+  icon: string;
+  content: string;
+}
+
+export interface ForecastDetailed {
+  highlights: string[];
+  sections: ForecastSection[];
+}
+
 export interface MemberForecast {
+  id?: number;
   name: string;
   role: string;
+  gender?: string;
+  ngu_hanh?: string;
+  nap_am?: string;
   birth_can_chi: string;
   year_can_chi: string;
   is_thai_tue: boolean;
@@ -102,6 +118,7 @@ export interface MemberForecast {
   energy_level: string;
   forecast: string;
   score: number;
+  detailed?: ForecastDetailed;
 }
 
 export interface FamilyForecast {

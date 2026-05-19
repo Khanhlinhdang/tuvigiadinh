@@ -2,7 +2,9 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
-import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, PairCompatibility } from "@/lib/api";
+import ReactMarkdown from "react-markdown";
+import remarkGfm from "remark-gfm";
+import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, MemberForecast, PairCompatibility } from "@/lib/api";
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 const HANH_COLORS: Record<string, string> = {
@@ -730,29 +732,36 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
       {/* AI Interpretation */}
       {analysis.ai_interpretation && (
         <div
-          className="p-6 rounded-2xl"
+          className="rounded-2xl overflow-hidden"
           style={{ background: "white", border: "1px solid var(--border)" }}
         >
-          <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-            <span>{analysis.analysis_mode === "offline" ? "📖" : "🤖"}</span>
-            {analysis.analysis_mode === "offline" ? "Phân Tích Chi Tiết (Offline)" : "Phân Tích AI"}
+          <div
+            className="px-6 py-4 flex items-center gap-2 flex-wrap"
+            style={{
+              background: "linear-gradient(135deg, rgba(139,92,246,0.08), rgba(236,72,153,0.08))",
+              borderBottom: "1px solid var(--border)",
+            }}
+          >
+            <span className="text-2xl">
+              {analysis.analysis_mode === "offline" ? "📖" : "🤖"}
+            </span>
+            <h3 className="font-bold text-lg">
+              {analysis.analysis_mode === "offline" ? "Phân Tích Chi Tiết" : "Phân Tích AI"}
+            </h3>
             {analysis.analysis_mode && (
               <span
-                className="ml-auto text-xs px-2 py-0.5 rounded-full"
+                className="ml-auto text-xs px-2.5 py-1 rounded-full font-medium"
                 style={{
                   background: analysis.analysis_mode === "online" ? "#dcfce7" : "#fef3c7",
                   color: analysis.analysis_mode === "online" ? "#166534" : "#92400e",
                 }}
               >
-                {analysis.analysis_mode === "online" ? "Online (ChatGPT)" : "Offline (không cần API key)"}
+                {analysis.analysis_mode === "online" ? "Online (ChatGPT)" : "Offline"}
               </span>
             )}
-          </h3>
-          <div
-            className="text-sm leading-relaxed whitespace-pre-wrap"
-            style={{ color: "var(--foreground)" }}
-          >
-            {analysis.ai_interpretation}
+          </div>
+          <div className="p-6">
+            <MarkdownContent content={analysis.ai_interpretation} />
           </div>
         </div>
       )}
@@ -1010,22 +1019,25 @@ function ForecastView({ forecast }: { forecast: FamilyForecast }) {
     "biến động": "#a855f7",
   };
 
+  const [selected, setSelected] = useState<number>(0);
+  const activeMember: MemberForecast | undefined = forecast.member_forecasts[selected];
+
   return (
     <div className="space-y-5 fade-in">
       {/* Family year summary */}
       <div
-        className="p-5 rounded-2xl"
+        className="p-6 rounded-2xl"
         style={{
           background: "linear-gradient(135deg, #1a1a2e, #16213e)",
           color: "white",
         }}
       >
-        <div className="text-xl font-bold mb-2">🗓️ Năm {forecast.year} - Tổng Quan</div>
-        <p className="text-gray-300">{forecast.family_year_summary}</p>
-        <div className="flex gap-4 mt-3 text-sm">
+        <div className="text-xl font-bold mb-2">🗓️ Năm {forecast.year} - Tổng Quan Gia Đình</div>
+        <p className="text-gray-300 leading-relaxed">{forecast.family_year_summary}</p>
+        <div className="flex gap-2 mt-4 text-sm flex-wrap">
           {forecast.thai_tue_count > 0 && (
             <span className="px-3 py-1 rounded-full" style={{ background: "#a855f730" }}>
-              ⚠️ {forecast.thai_tue_count} Thái Tuế
+              ⚠️ {forecast.thai_tue_count} thành viên Thái Tuế
             </span>
           )}
           <span className="px-3 py-1 rounded-full" style={{ background: "#22c55e30" }}>
@@ -1034,48 +1046,141 @@ function ForecastView({ forecast }: { forecast: FamilyForecast }) {
         </div>
       </div>
 
-      {/* Member forecasts */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
-        {forecast.member_forecasts.map((mf, i) => (
-          <div
-            key={i}
-            className="p-5 rounded-2xl card-hover"
-            style={{
-              background: "white",
-              border: `2px solid ${levelColors[mf.energy_level] || "#8b5cf6"}30`,
-            }}
-          >
-            <div className="flex items-center justify-between mb-3">
-              <div>
-                <div className="font-bold">{mf.name}</div>
-                <div className="text-xs" style={{ color: "var(--muted)" }}>
-                  {mf.role} · {mf.birth_can_chi} → {mf.year_can_chi}
-                </div>
+      {/* Member quick picker */}
+      <div className="grid grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3">
+        {forecast.member_forecasts.map((mf, i) => {
+          const isActive = selected === i;
+          const color = levelColors[mf.energy_level] || "#8b5cf6";
+          return (
+            <button
+              key={i}
+              onClick={() => setSelected(i)}
+              className="text-left p-4 rounded-2xl card-hover transition-all"
+              style={{
+                background: isActive ? `${color}10` : "white",
+                border: `2px solid ${isActive ? color : "#e5e7eb"}`,
+                boxShadow: isActive ? `0 4px 12px ${color}30` : "0 1px 3px rgba(0,0,0,0.04)",
+              }}
+            >
+              <div className="flex items-center justify-between mb-2">
+                <span className="font-bold text-sm">{mf.name}</span>
+                <span
+                  className="text-[10px] px-2 py-0.5 rounded-full font-semibold"
+                  style={{ background: `${color}20`, color }}
+                >
+                  {mf.energy_level}
+                </span>
               </div>
-              <span
-                className="px-2 py-1 rounded-lg text-xs font-semibold"
-                style={{
-                  background: `${levelColors[mf.energy_level] || "#8b5cf6"}20`,
-                  color: levelColors[mf.energy_level] || "#8b5cf6",
-                }}
-              >
-                {mf.energy_level}
+              <div className="text-[11px]" style={{ color: "var(--muted)" }}>
+                {mf.role} · {mf.birth_can_chi}
+              </div>
+              {mf.is_thai_tue && (
+                <div className="text-[10px] mt-1 font-medium" style={{ color: "#7c3aed" }}>
+                  ⚠️ Thái Tuế
+                </div>
+              )}
+            </button>
+          );
+        })}
+      </div>
+
+      {/* Detailed forecast for selected member */}
+      {activeMember && <MemberForecastDetail mf={activeMember} year={forecast.year} />}
+    </div>
+  );
+}
+
+function MemberForecastDetail({ mf, year }: { mf: MemberForecast; year: number }) {
+  const levelColors: Record<string, string> = {
+    "thuận lợi": "#22c55e",
+    "ổn định": "#3b82f6",
+    "cần chú ý": "#f59e0b",
+    "thách thức": "#ef4444",
+    "biến động": "#a855f7",
+  };
+  const color = levelColors[mf.energy_level] || "#8b5cf6";
+  const sections = mf.detailed?.sections || [];
+  const highlights = mf.detailed?.highlights || [];
+
+  return (
+    <div
+      className="rounded-2xl overflow-hidden fade-in"
+      style={{ background: "white", border: "1px solid var(--border)" }}
+    >
+      {/* Header */}
+      <div
+        className="p-5"
+        style={{
+          background: `linear-gradient(135deg, ${color}15, ${color}05)`,
+          borderBottom: "1px solid var(--border)",
+        }}
+      >
+        <div className="flex items-start justify-between gap-3 flex-wrap">
+          <div>
+            <div className="text-lg font-bold">
+              {mf.name}{" "}
+              <span style={{ color: "var(--muted)" }} className="text-sm font-normal">
+                · {mf.role}
               </span>
             </div>
-
-            {mf.is_thai_tue && (
-              <div
-                className="mb-2 px-3 py-1.5 rounded-lg text-xs font-semibold"
-                style={{ background: "#f3e8ff", color: "#7c3aed" }}
-              >
-                ⚠️ Năm Thái Tuế - Năm bản mệnh
-              </div>
-            )}
-
-            <p className="text-sm" style={{ color: "var(--muted)" }}>{mf.forecast}</p>
+            <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+              Bản mệnh: <strong>{mf.birth_can_chi}</strong>
+              {mf.ngu_hanh && <> · hành <strong>{mf.ngu_hanh}</strong></>}
+              {mf.nap_am && <> · nạp âm <strong>{mf.nap_am}</strong></>}
+            </div>
+            <div className="text-xs mt-0.5" style={{ color: "var(--muted)" }}>
+              Năm {year}: <strong>{mf.year_can_chi}</strong>
+            </div>
           </div>
-        ))}
+          <span
+            className="px-3 py-1 rounded-full text-xs font-semibold"
+            style={{ background: `${color}20`, color }}
+          >
+            {mf.energy_level}
+          </span>
+        </div>
+
+        {/* Highlights */}
+        {highlights.length > 0 && (
+          <div className="mt-4 space-y-1.5">
+            {highlights.map((h, i) => (
+              <div
+                key={i}
+                className="text-sm px-3 py-2 rounded-lg"
+                style={{ background: "white", border: `1px solid ${color}30` }}
+              >
+                {h}
+              </div>
+            ))}
+          </div>
+        )}
+
+        {/* Top summary */}
+        <p className="text-sm mt-4 leading-relaxed" style={{ color: "var(--foreground)" }}>
+          {mf.forecast}
+        </p>
       </div>
+
+      {/* Sections grid */}
+      {sections.length > 0 && (
+        <div className="p-5 grid grid-cols-1 md:grid-cols-2 gap-3">
+          {sections.map((s) => (
+            <div
+              key={s.key}
+              className="p-4 rounded-xl"
+              style={{ background: "#fafaf9", border: "1px solid var(--border)" }}
+            >
+              <div className="flex items-center gap-2 mb-2">
+                <span className="text-xl">{s.icon}</span>
+                <h4 className="font-semibold text-sm">{s.title}</h4>
+              </div>
+              <div className="text-sm leading-relaxed" style={{ color: "var(--foreground)" }}>
+                <MarkdownContent content={s.content} compact />
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
     </div>
   );
 }
@@ -1140,7 +1245,7 @@ function ChatView({
             className={`flex ${msg.role === "user" ? "justify-end" : "justify-start"}`}
           >
             <div
-              className="max-w-xs lg:max-w-md px-4 py-3 rounded-2xl text-sm"
+              className={`px-4 py-3 rounded-2xl text-sm ${msg.role === "user" ? "max-w-xs lg:max-w-md" : "max-w-xl lg:max-w-2xl"}`}
               style={{
                 background: msg.role === "user"
                   ? "linear-gradient(135deg, #8b5cf6, #ec4899)"
@@ -1154,7 +1259,11 @@ function ChatView({
                   🤖 AI Cố Vấn
                 </div>
               )}
-              <div className="whitespace-pre-wrap">{msg.content}</div>
+              {msg.role === "ai" ? (
+                <MarkdownContent content={msg.content} compact />
+              ) : (
+                <div className="whitespace-pre-wrap">{msg.content}</div>
+              )}
             </div>
           </div>
         ))}
@@ -1190,6 +1299,152 @@ function ChatView({
           Gửi
         </button>
       </form>
+    </div>
+  );
+}
+
+// ============ Markdown Renderer ============
+
+function MarkdownContent({ content, compact = false }: { content: string; compact?: boolean }) {
+  return (
+    <div className={`tuvi-markdown ${compact ? "tuvi-markdown-compact" : ""}`}>
+      <ReactMarkdown
+        remarkPlugins={[remarkGfm]}
+        components={{
+          h1: ({ children }) => (
+            <h1
+              className="text-2xl font-bold mt-6 mb-3 pb-2"
+              style={{
+                background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                WebkitBackgroundClip: "text",
+                WebkitTextFillColor: "transparent",
+                borderBottom: "2px solid #f3e8ff",
+              }}
+            >
+              {children}
+            </h1>
+          ),
+          h2: ({ children }) => (
+            <h2
+              className="text-xl font-bold mt-6 mb-3 flex items-center gap-2"
+              style={{ color: "#6d28d9" }}
+            >
+              <span
+                className="inline-block w-1 h-6 rounded-full"
+                style={{ background: "linear-gradient(180deg, #8b5cf6, #ec4899)" }}
+              />
+              {children}
+            </h2>
+          ),
+          h3: ({ children }) => (
+            <h3 className="text-base font-semibold mt-4 mb-2" style={{ color: "#7c3aed" }}>
+              {children}
+            </h3>
+          ),
+          h4: ({ children }) => (
+            <h4 className="text-sm font-semibold mt-3 mb-1.5" style={{ color: "var(--foreground)" }}>
+              {children}
+            </h4>
+          ),
+          p: ({ children }) => (
+            <p className="text-sm leading-relaxed my-2" style={{ color: "var(--foreground)" }}>
+              {children}
+            </p>
+          ),
+          ul: ({ children }) => <ul className="my-2 space-y-1 pl-1">{children}</ul>,
+          ol: ({ children }) => (
+            <ol className="my-2 space-y-1 pl-5 list-decimal" style={{ color: "var(--foreground)" }}>
+              {children}
+            </ol>
+          ),
+          li: ({ children }) => (
+            <li
+              className="text-sm leading-relaxed pl-5 relative"
+              style={{ color: "var(--foreground)" }}
+            >
+              <span
+                className="absolute left-0 top-2 w-1.5 h-1.5 rounded-full"
+                style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+              />
+              {children}
+            </li>
+          ),
+          strong: ({ children }) => (
+            <strong className="font-semibold" style={{ color: "#6d28d9" }}>
+              {children}
+            </strong>
+          ),
+          em: ({ children }) => (
+            <em style={{ color: "var(--muted)" }}>{children}</em>
+          ),
+          blockquote: ({ children }) => (
+            <blockquote
+              className="my-3 pl-4 py-2 pr-3 rounded-r-lg text-sm"
+              style={{
+                borderLeft: "4px solid #a855f7",
+                background: "#faf5ff",
+                color: "var(--foreground)",
+              }}
+            >
+              {children}
+            </blockquote>
+          ),
+          hr: () => (
+            <hr
+              className="my-5 border-0 h-px"
+              style={{
+                background:
+                  "linear-gradient(90deg, transparent, #d8b4fe 50%, transparent)",
+              }}
+            />
+          ),
+          table: ({ children }) => (
+            <div className="my-3 overflow-x-auto rounded-xl" style={{ border: "1px solid var(--border)" }}>
+              <table className="w-full text-sm border-collapse">{children}</table>
+            </div>
+          ),
+          thead: ({ children }) => (
+            <thead style={{ background: "#f8f4ff" }}>{children}</thead>
+          ),
+          th: ({ children }) => (
+            <th
+              className="px-3 py-2 text-left font-semibold text-xs uppercase tracking-wide"
+              style={{ color: "#6d28d9", borderBottom: "1px solid var(--border)" }}
+            >
+              {children}
+            </th>
+          ),
+          td: ({ children }) => (
+            <td
+              className="px-3 py-2 text-sm align-top"
+              style={{ borderTop: "1px solid var(--border)" }}
+            >
+              {children}
+            </td>
+          ),
+          code: ({ children }) => (
+            <code
+              className="px-1.5 py-0.5 rounded text-xs font-mono"
+              style={{ background: "#f3e8ff", color: "#6d28d9" }}
+            >
+              {children}
+            </code>
+          ),
+          a: ({ href, children }) => (
+            <a
+              href={href}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="underline"
+              style={{ color: "#7c3aed" }}
+            >
+              {children}
+            </a>
+          ),
+        }}
+      >
+        {content}
+      </ReactMarkdown>
     </div>
   );
 }

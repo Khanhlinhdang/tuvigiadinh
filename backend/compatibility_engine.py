@@ -528,9 +528,244 @@ def determine_family_dynamics(
     return dynamics
 
 
+def _health_focus_for_hanh(hanh: str) -> List[str]:
+    """Common health focus areas by Ngũ hành of bản mệnh."""
+    return {
+        "Kim": ["hô hấp - phổi", "đại tràng", "da", "khớp xương", "viêm xoang"],
+        "Mộc": ["gan - mật", "mắt", "gân cơ", "đầu - cổ", "căng thẳng thần kinh"],
+        "Hỏa": ["tim mạch", "huyết áp", "tuần hoàn", "mất ngủ", "ruột non"],
+        "Thổ": ["tiêu hoá - dạ dày", "lá lách", "cơ", "cân nặng", "đường huyết"],
+        "Thủy": ["thận - bàng quang", "nội tiết", "khí huyết", "tai", "sinh lý"],
+    }.get(hanh, ["sức khỏe tổng quát", "giấc ngủ", "tinh thần"])
+
+
+def _is_child(role: str, year: int, birth_year: int | None) -> bool:
+    if role in {"con", "anh", "chị", "em"}:
+        # Age-based fallback - children under 16
+        if birth_year and year - birth_year <= 16:
+            return True
+        return role == "con"
+    return False
+
+
+def _detailed_member_forecast(
+    member: dict, year: int, year_can: str, year_chi: str, base: dict
+) -> dict:
+    """Build a rich per-member forecast covering career, finance,
+    mental, emotional, health, relationships - tailored by role, gender,
+    age, ngũ hành, can-chi vs the target year.
+
+    `base` is the output of `calculate_annual_energy(...)` for this member.
+    """
+    name = member.get("name", "")
+    role = member.get("role", "")
+    gender = member.get("gender", "")
+    hanh = member.get("ngu_hanh", "")
+    chi = member.get("dia_chi", "")
+    can = member.get("thien_can", "")
+    nap_am = member.get("nap_am", "")
+    birth_year = member.get("lunar_year") or member.get("birth_year")
+
+    is_thai_tue = base.get("is_thai_tue", False)
+    is_xung = base.get("is_xung", False)
+    level = base.get("energy_level", "ổn định")
+    is_child = _is_child(role, year, birth_year)
+
+    year_hanh_can = {
+        "Giáp": "Mộc", "Ất": "Mộc", "Bính": "Hỏa", "Đinh": "Hỏa",
+        "Mậu": "Thổ", "Kỷ": "Thổ", "Canh": "Kim", "Tân": "Kim",
+        "Nhâm": "Thủy", "Quý": "Thủy",
+    }.get(year_can, "")
+
+    # Hanh interaction member vs year
+    year_member_relation = ""
+    if hanh and year_hanh_can:
+        if hanh == year_hanh_can:
+            year_member_relation = f"đồng hành ({hanh}) với thiên can năm - năng lượng được củng cố"
+        elif TUONG_SINH.get(year_hanh_can) == hanh:
+            year_member_relation = f"thiên can năm ({year_hanh_can}) sinh bản mệnh ({hanh}) - năm được nâng đỡ"
+        elif TUONG_SINH.get(hanh) == year_hanh_can:
+            year_member_relation = f"bản mệnh ({hanh}) sinh thiên can năm ({year_hanh_can}) - dễ hao tổn năng lượng, cần giữ sức"
+        elif TUONG_KHAC.get(year_hanh_can) == hanh:
+            year_member_relation = f"thiên can năm ({year_hanh_can}) khắc bản mệnh ({hanh}) - cần đề phòng áp lực"
+        elif TUONG_KHAC.get(hanh) == year_hanh_can:
+            year_member_relation = f"bản mệnh ({hanh}) khắc thiên can năm ({year_hanh_can}) - chủ động được nhưng tốn sức"
+
+    # ------- Career / Development -------
+    if is_child:
+        career_title = "Phát triển - học hành"
+        career = (
+            f"Bé {name} (hành {hanh}, {can} {chi}) đang ở giai đoạn phát triển. "
+            f"Năm {year} là dịp tốt để định hình tính cách lõi và kỹ năng nền."
+        )
+        if hanh == "Kim":
+            career += " Hợp các hoạt động có kỷ luật rõ (võ thuật, âm nhạc theo bài bản)."
+        elif hanh == "Mộc":
+            career += " Hợp các hoạt động sáng tạo, khám phá thiên nhiên, ngôn ngữ."
+        elif hanh == "Hỏa":
+            career += " Cần kênh xả năng lượng (thể thao), học cách điều tiết cảm xúc sớm."
+        elif hanh == "Thổ":
+            career += " Cần môi trường ổn định, ít xáo trộn; thích hợp các hoạt động lặp lại."
+        elif hanh == "Thủy":
+            career += " Tư duy linh hoạt, hợp các trò chơi logic, sách truyện, ngôn ngữ."
+    else:
+        career_title = "Sự nghiệp - công việc"
+        career_bits = []
+        if is_thai_tue:
+            career_bits.append(
+                "Năm Thái Tuế (trùng địa chi với năm sinh) – đây là chu kỳ tái cấu "
+                "trúc nghề nghiệp, dễ có thay đổi định hướng, chuyển môi trường, "
+                "hoặc mở rộng quy mô. Nên chuẩn bị sẵn cho biến động."
+            )
+        elif is_xung:
+            career_bits.append(
+                "Năm xung địa chi – có thể gặp va chạm trong tổ chức, biến động "
+                "công việc; nên giữ thái độ điềm tĩnh, tránh quyết định gấp."
+            )
+        elif level == "thuận lợi":
+            career_bits.append(
+                "Năm vận khí thuận – có nhiều cơ hội mở rộng công việc, có quý nhân "
+                "nghề nghiệp; nên chủ động đặt mục tiêu lớn."
+            )
+        else:
+            career_bits.append(
+                "Năm ổn định – phù hợp để củng cố vị trí hiện tại, hoàn thiện kỹ năng "
+                "và xây nền cho chu kỳ sau."
+            )
+        if year_member_relation:
+            career_bits.append("Theo ngũ hành: " + year_member_relation + ".")
+        # Hanh-specific career suggestions
+        if hanh == "Kim":
+            career_bits.append("Hành Kim hợp công việc cần kỷ luật, hệ thống: tài chính, luật, công nghệ, vận hành.")
+        elif hanh == "Mộc":
+            career_bits.append("Hành Mộc hợp sáng tạo - giáo dục - sản phẩm - thương hiệu - nông nghiệp công nghệ cao.")
+        elif hanh == "Hỏa":
+            career_bits.append("Hành Hỏa hợp truyền thông, marketing, sales, năng lượng, ngành biểu diễn.")
+        elif hanh == "Thổ":
+            career_bits.append("Hành Thổ hợp bất động sản, xây dựng, dịch vụ ổn định, quản trị dài hạn.")
+        elif hanh == "Thủy":
+            career_bits.append("Hành Thủy hợp tri thức, nghiên cứu, tư vấn, dòng chảy thông tin, fintech.")
+        career = " ".join(career_bits)
+
+    # ------- Finance -------
+    if is_child:
+        fin_title = "Tài lộc gia đình dành cho bé"
+        finance = (
+            f"Bé {name} chưa tạo dòng tiền nhưng là 'phúc khí' của gia đình. "
+            "Nên có quỹ giáo dục riêng và bảo hiểm sức khỏe cơ bản."
+        )
+    else:
+        fin_title = "Tài chính"
+        fin_bits = []
+        if level in {"thuận lợi", "ổn định"} and not is_thai_tue:
+            fin_bits.append(
+                "Dòng tiền có xu hướng tăng, có cơ hội tích lũy và đầu tư dài hạn."
+            )
+        else:
+            fin_bits.append(
+                "Tiền vào ra mạnh – chi nhiều cho gia đình, nhà cửa, thiết bị, "
+                "hoặc tái đầu tư công việc. Cần kế hoạch dòng tiền rõ ràng."
+            )
+        if is_thai_tue or is_xung:
+            fin_bits.append(
+                "**Tránh**: đầu cơ nóng, vay đòn bẩy cao, 'all-in', quyết định "
+                "tài chính khi đang stress."
+            )
+        else:
+            fin_bits.append(
+                "**Phù hợp**: đầu tư dài hạn, xây hệ thống thu nhập, mua tài sản phục vụ tương lai."
+            )
+        if hanh == "Kim":
+            fin_bits.append("Người hành Kim thường giỏi giữ tiền và kỷ luật chi tiêu - đây là lợi thế năm nay.")
+        elif hanh == "Thủy":
+            fin_bits.append("Người hành Thủy linh hoạt với dòng tiền, hợp các kênh tài chính - nhưng cần tránh dàn trải.")
+        finance = " ".join(fin_bits)
+
+    # ------- Mental / Tâm sinh lý -------
+    mental_title = "Tâm sinh lý"
+    mental_bits = []
+    if can == "Canh" or can == "Tân":
+        mental_bits.append("Người Can Kim thường có thần kinh hoạt động mạnh, khó nghỉ ngơi, dễ ôm việc.")
+    elif can in {"Giáp", "Ất"}:
+        mental_bits.append("Người Can Mộc tư duy phóng khoáng, dễ căng thẳng khi bị gò bó.")
+    elif can in {"Bính", "Đinh"}:
+        mental_bits.append("Người Can Hỏa nhiệt thành, cảm xúc mạnh, dễ bốc nhanh - nguội nhanh.")
+    elif can in {"Mậu", "Kỷ"}:
+        mental_bits.append("Người Can Thổ điềm đạm, ổn định, nhưng dễ ôm nội tâm.")
+    elif can in {"Nhâm", "Quý"}:
+        mental_bits.append("Người Can Thủy nhạy cảm, trực giác tốt, dễ suy nghĩ nhiều và tủi thân.")
+    if is_thai_tue:
+        mental_bits.append("Năm Thái Tuế làm thần kinh hoạt động liên tục - dễ mất ngủ, burnout nếu không nghỉ ngơi đủ.")
+    if gender == "nữ" and not is_child:
+        mental_bits.append("Phụ nữ năm này nên đặc biệt giữ ổn định cảm xúc, tránh dồn nén; chia sẻ chủ động với người thân.")
+    if gender == "nam" and not is_child:
+        mental_bits.append("Nam giới năm này dễ chịu áp lực âm thầm; hãy chủ động nói ra cảm xúc thay vì cứng rắn một mình.")
+    mental_bits.append("Khuyến nghị: thiền 10 phút/ngày, ngủ đủ 7 giờ, vận động đều.")
+    mental = " ".join(mental_bits)
+
+    # ------- Emotional / Tình cảm -------
+    emo_title = "Tình cảm - quan hệ"
+    if is_child:
+        emotional = (
+            f"Bé {name} cần được lắng nghe và công nhận cảm xúc. "
+            "Cha mẹ tránh so sánh với anh chị em hoặc với 'con nhà khác'."
+        )
+    elif role == "chồng":
+        emotional = (
+            "Người chồng năm nay dễ bị cuốn vào công việc – cần dành thời gian "
+            "chất lượng cho vợ, lắng nghe chủ động và không 'giải quyết' cảm xúc "
+            "của vợ bằng logic."
+        )
+    elif role == "vợ":
+        emotional = (
+            "Người vợ năm nay cảm xúc dễ dao động – cần chia sẻ thẳng thay vì "
+            "im lặng tích tụ. Nên có hoạt động riêng nuôi dưỡng bản thân."
+        )
+    elif role in {"cha", "bố", "mẹ"}:
+        emotional = (
+            f"Vai trò {role} năm nay là 'trục cảm xúc' của gia đình – cần giữ "
+            "ổn định nội tâm để các thành viên khác có chỗ dựa."
+        )
+    else:
+        emotional = "Năm nay nên ưu tiên những quan hệ bồi đắp năng lượng tích cực."
+
+    # ------- Health -------
+    health_title = "Sức khỏe"
+    foci = _health_focus_for_hanh(hanh)
+    health_intro = f"Bản mệnh hành **{hanh}**" + (f" (nạp âm: {nap_am})" if nap_am else "") + ", năm nay cần lưu ý:"
+    health = (
+        health_intro + " " + ", ".join(foci) + ". " +
+        ("Đặc biệt năm Thái Tuế nên khám tổng quát đầu năm." if is_thai_tue else
+         "Khám định kỳ 6-12 tháng/lần, ưu tiên giấc ngủ và vận động.")
+    )
+
+    # ------- Lưu ý chính -------
+    highlights = []
+    if is_thai_tue:
+        highlights.append("⚠️ Năm Thái Tuế – chu kỳ tái cấu trúc, cần thận trọng quyết định lớn.")
+    if is_xung:
+        highlights.append("⚡ Năm xung địa chi – có thể có biến động về môi trường sống/công việc.")
+    if level == "thuận lợi":
+        highlights.append("✨ Vận khí thuận – nắm bắt cơ hội mở rộng.")
+    if year_member_relation:
+        highlights.append("🌿 " + year_member_relation.capitalize() + ".")
+
+    return {
+        "highlights": highlights,
+        "sections": [
+            {"key": "career", "title": career_title, "icon": "💼", "content": career},
+            {"key": "finance", "title": fin_title, "icon": "💰", "content": finance},
+            {"key": "mental", "title": mental_title, "icon": "🧠", "content": mental},
+            {"key": "emotional", "title": emo_title, "icon": "💞", "content": emotional},
+            {"key": "health", "title": health_title, "icon": "🩺", "content": health},
+        ],
+    }
+
+
 def get_family_annual_forecast(members: List[dict], year: int) -> dict:
     """Get annual forecast for all family members"""
     forecasts = []
+    year_can, year_chi = get_year_can_chi(year)
 
     for member in members:
         # Prefer lunar year (Can Chi cycle is lunar-based), fall back to
@@ -540,10 +775,16 @@ def get_family_annual_forecast(members: List[dict], year: int) -> dict:
         astro_year = lunar_year if lunar_year is not None else member.get("birth_year")
         if astro_year:
             forecast = calculate_annual_energy(astro_year, year)
+            detailed = _detailed_member_forecast(member, year, year_can, year_chi, forecast)
             forecasts.append({
+                "id": member.get("id"),
                 "name": member["name"],
                 "role": member["role"],
-                **forecast
+                "gender": member.get("gender", ""),
+                "ngu_hanh": member.get("ngu_hanh", ""),
+                "nap_am": member.get("nap_am", ""),
+                **forecast,
+                "detailed": detailed,
             })
 
     # Determine family year assessment
