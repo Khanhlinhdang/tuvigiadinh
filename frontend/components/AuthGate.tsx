@@ -4,7 +4,13 @@ import { usePathname, useRouter } from "next/navigation";
 import { useEffect } from "react";
 import { useAuth } from "@/components/AuthProvider";
 
-const PUBLIC_PATHS = ["/login"];
+const PUBLIC_PATHS = [
+  "/login",
+  "/dieu-khoan-dich-vu",
+  "/chinh-sach-bao-mat",
+  "/chinh-sach-thanh-toan",
+  "/mien-tru-trach-nhiem",
+];
 
 export function AuthGate({ children }: { children: React.ReactNode }) {
   const { user, loading, config } = useAuth();
