@@ -68,12 +68,9 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   }, [familyId]);
 
   useEffect(() => {
-    // Defer the async load so React's compiler does not treat the resulting
-    // state updates as synchronous effect work.
-    const timer = window.setTimeout(() => {
-      loadFamily();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    // Standard mount/route-change data load; the async helper updates state after fetch completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadFamily();
   }, [loadFamily]);
 
   async function addMember(e: React.FormEvent) {
@@ -1006,7 +1003,7 @@ function AnalysisView({
       summary?.positioning_note || "Kết quả mang tính tham khảo văn hoá.",
     ].filter(Boolean).join("\n");
 
-    if (typeof navigator !== "undefined" && "share" in navigator) {
+    if ("share" in navigator) {
       try {
         await navigator.share({ title: "Tử Vi Gia Đình", text });
         return;

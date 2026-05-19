@@ -24,12 +24,9 @@ export default function FamiliesPage() {
   }, []);
 
   useEffect(() => {
-    // Defer the async load so React's compiler does not treat the resulting
-    // state updates as synchronous effect work.
-    const timer = window.setTimeout(() => {
-      loadFamilies();
-    }, 0);
-    return () => window.clearTimeout(timer);
+    // Standard mount data load; the async helper updates state after fetch completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadFamilies();
   }, [loadFamilies]);
 
   async function createFamily(e: React.FormEvent) {
