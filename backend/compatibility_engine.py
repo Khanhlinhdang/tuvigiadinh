@@ -17,6 +17,7 @@ from typing import List, Dict
 
 MAX_EXECUTIVE_STRENGTHS = 3
 MAX_EXECUTIVE_RISKS = 3
+MAX_EXECUTIVE_ACTIONS = 5
 
 
 def get_compatibility_level(score: int) -> str:
@@ -544,8 +545,8 @@ def build_executive_summary(
     This gives users quick value before reading the long AI/offline report and
     reduces the need to repeatedly call the AI just to understand the result.
     """
-    best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0), default=None)
-    attention_pair = min(pairs_analysis, key=lambda p: p.get("overall_score", 0), default=None)
+    best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if pairs_analysis else None
+    attention_pair = min(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if pairs_analysis else None
     dominant_hanh = max(energy_distribution, key=energy_distribution.get) if energy_distribution else ""
     energy_keeper = energy_roles[0] if energy_roles else None
 
@@ -594,7 +595,7 @@ def build_executive_summary(
         "Dùng cặp thuận lợi nhất làm 'cầu nối' để lan tỏa năng lượng tích cực trong nhà.",
         "Khi đọc báo cáo dài, ưu tiên biến mỗi khuyến nghị thành một hành động nhỏ có thể làm ngay trong tuần.",
         "Lưu kết quả hiện tại để so sánh lại sau khi gia đình thay đổi hoặc bước sang năm mới.",
-    ]
+    ][:MAX_EXECUTIVE_ACTIONS]
 
     return {
         "strengths": strengths,

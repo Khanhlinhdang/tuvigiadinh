@@ -417,7 +417,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
                     : analysisProgress < 60
                     ? "Tính toán Can - Chi, Ngũ hành, tương sinh tương khắc..."
                     : analysisProgress < 90
-                    ? "Đang tạo tóm tắt và báo cáo tiết kiệm token..."
+                    ? "Đang tổng hợp tóm tắt và báo cáo nhanh..."
                     : "Hoàn tất..."}
                 </p>
                 <ProgressBar value={analysisProgress} />
