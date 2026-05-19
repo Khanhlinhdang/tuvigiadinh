@@ -56,3 +56,7 @@ Thumbs.db
 
 # Docker
 .dockerignore
+
+# OAuth secrets
+backend/client_secret_*.json
+client_secret_*.json

@@ -18,6 +18,7 @@ import time
 from datetime import datetime, timedelta
 from typing import Optional
 
+from dotenv import load_dotenv
 from fastapi import Depends, HTTPException, Request, status
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
@@ -26,6 +27,7 @@ from sqlalchemy.orm import Session
 from models import User
 
 logger = logging.getLogger(__name__)
+load_dotenv()
 
 
 # ============ Config ============
@@ -56,6 +58,24 @@ JWT_EXP_HOURS = int(os.getenv("JWT_EXP_HOURS", "24"))
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
+
+def _read_non_negative_int_env(name: str, default: int) -> int:
+    raw = os.getenv(name, str(default)).strip()
+    try:
+        value = int(raw)
+    except ValueError:
+        logger.warning("%s=%r is invalid. Falling back to %s.", name, raw, default)
+        return default
+    if value < 0:
+        logger.warning("%s=%r is negative. Falling back to %s.", name, raw, default)
+        return default
+    return value
+
+
+GOOGLE_TOKEN_CLOCK_SKEW_SECONDS = _read_non_negative_int_env(
+    "GOOGLE_TOKEN_CLOCK_SKEW_SECONDS", 60
+)
+
 # Explicit dev mode flag to enable insecure helpers (e.g., decoding
 # Google ID tokens without signature verification when google-auth is
 # unavailable). Defaults to off so production deployments are safe.
@@ -85,10 +105,19 @@ def verify_google_id_token(credential: str) -> dict:
 
         request = g_requests.Request()
         if GOOGLE_CLIENT_ID:
-            info = id_token.verify_oauth2_token(credential, request, GOOGLE_CLIENT_ID)
+            info = id_token.verify_oauth2_token(
+                credential,
+                request,
+                GOOGLE_CLIENT_ID,
+                clock_skew_in_seconds=GOOGLE_TOKEN_CLOCK_SKEW_SECONDS,
+            )
         else:
             # No client id configured: verify signature only.
-            info = id_token.verify_oauth2_token(credential, request)
+            info = id_token.verify_oauth2_token(
+                credential,
+                request,
+                clock_skew_in_seconds=GOOGLE_TOKEN_CLOCK_SKEW_SECONDS,
+            )
         if info.get("iss") not in (
             "accounts.google.com",
             "https://accounts.google.com",
@@ -119,6 +148,16 @@ def verify_google_id_token(credential: str) -> dict:
     except HTTPException:
         raise
     except Exception as e:  # google-auth raises ValueError on bad tokens
+        msg = str(e)
+        if "Token used too early" in msg:
+            raise HTTPException(
+                status_code=401,
+                detail=(
+                    "Google token không hợp lệ do lệch thời gian hệ thống. "
+                    "Vui lòng đồng bộ giờ máy chủ/máy khách và thử lại. "
+                    f"(clock skew hiện tại: {GOOGLE_TOKEN_CLOCK_SKEW_SECONDS}s)"
+                ),
+            )
         raise HTTPException(status_code=401, detail=f"Google token không hợp lệ: {e}")
 
 
