@@ -101,10 +101,11 @@ docker compose up -d
 Ung dung **hoat dong day du** ma khong can API Key.
 Khi khong co key, AI se dung template thong minh dua tren rule-based engine.
 
-De dung AI that (OpenAI GPT-4o-mini):
+De dung AI that (mac dinh OpenAI GPT-5.4 mini):
 ```bash
 # backend/.env
 OPENAI_API_KEY=sk-...
+OPENAI_MODEL=gpt-5.4-mini
 ```
 
 ---
@@ -169,7 +170,7 @@ Tu dong tinh tu nam sinh theo chu ky 60 nam (Luc Thap Hoa Giap).
 |-------|-----------|
 | Frontend | Next.js 16, TypeScript, Tailwind CSS, Recharts |
 | Backend | FastAPI, SQLAlchemy, SQLite |
-| AI | OpenAI GPT-4o-mini (optional) |
+| AI | OpenAI GPT-5.4 mini (optional, cau hinh qua `OPENAI_MODEL`) |
 | Deploy | Docker Compose |
 
 ---
