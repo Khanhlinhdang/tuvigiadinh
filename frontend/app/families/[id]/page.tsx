@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
@@ -56,11 +56,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     is_leap_month: false,
   });
 
-  useEffect(() => {
-    loadFamily();
-  }, [familyId]);
-
-  async function loadFamily() {
+  const loadFamily = useCallback(async () => {
     try {
       const data = await api.getFamily(familyId);
       setFamily(data);
@@ -69,7 +65,14 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     } finally {
       setLoading(false);
     }
-  }
+  }, [familyId]);
+
+  useEffect(() => {
+    const timer = window.setTimeout(() => {
+      loadFamily();
+    }, 0);
+    return () => window.clearTimeout(timer);
+  }, [loadFamily]);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();

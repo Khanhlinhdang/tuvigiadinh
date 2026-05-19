@@ -49,7 +49,7 @@ export function GoogleLoginButton({ onSuccess, allowDevPaste = true }: Props) {
     if (!clientId) return;
     if (typeof window === "undefined") return;
     if (window.google?.accounts?.id) {
-      setScriptReady(true);
+      queueMicrotask(() => setScriptReady(true));
       return;
     }
     const existing = document.querySelector<HTMLScriptElement>(
