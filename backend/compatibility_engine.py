@@ -546,7 +546,11 @@ def build_executive_summary(
     reduces the need to repeatedly call the AI just to understand the result.
     """
     best_pair = max(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if pairs_analysis else None
-    attention_pair = min(pairs_analysis, key=lambda p: p.get("overall_score", 0)) if pairs_analysis else None
+    attention_pair = (
+        min(pairs_analysis, key=lambda p: p.get("overall_score", 0))
+        if len(pairs_analysis) > 1
+        else None
+    )
     dominant_hanh = max(energy_distribution, key=energy_distribution.get) if energy_distribution else ""
     energy_keeper = energy_roles[0] if energy_roles else None
 

@@ -136,7 +136,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   }
 
   async function loadAnalysis(useAi = false) {
-    if (analysis && !useAi) return;
+    if (analysis && (!useAi || analysis.analysis_mode === "online")) return;
     setAnalysisLoading(true);
     setAnalysisProgress(5);
     // Simulated progress while waiting for backend - backend doesn't
@@ -981,6 +981,7 @@ function AnalysisView({
 }) {
   const [selectedPair, setSelectedPair] = useState(0);
   const [showFullReport, setShowFullReport] = useState(false);
+  const hasInterpretation = Boolean(analysis.ai_interpretation?.trim());
 
   const scoreColor = (score: number) => {
     if (score >= 65) return "#22c55e";
@@ -1153,7 +1154,7 @@ function AnalysisView({
       )}
 
       {/* AI Interpretation */}
-      {analysis.ai_interpretation && (
+      {hasInterpretation && analysis.ai_interpretation && (
         <div
           className="rounded-2xl overflow-hidden"
           style={{ background: "white", border: "1px solid var(--border)" }}
