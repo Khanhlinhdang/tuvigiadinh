@@ -9,6 +9,14 @@ export interface FamilyMember {
   birth_year: number;
   birth_month?: number;
   birth_day?: number;
+  birth_calendar?: 'solar' | 'lunar';
+  solar_year?: number;
+  solar_month?: number;
+  solar_day?: number;
+  lunar_year?: number;
+  lunar_month?: number;
+  lunar_day?: number;
+  is_leap_month?: boolean;
   thien_can?: string;
   dia_chi?: string;
   ngu_hanh?: string;
@@ -23,6 +31,20 @@ export interface Family {
   description?: string;
   created_at: string;
   members: FamilyMember[];
+}
+
+export interface Citation {
+  key: string;
+  title: string;
+  author: string;
+  year: string;
+  note: string;
+}
+
+export interface SinhKhac {
+  type: string;
+  headline: string;
+  detail: string;
 }
 
 export interface PairCompatibility {
@@ -48,6 +70,12 @@ export interface PairCompatibility {
     lifestyle: number;
     stability: number;
   };
+  relationship_type?: string;
+  relationship_key?: string;
+  sinh_khac?: SinhKhac;
+  relationship_advice?: string[];
+  relationship_explanation?: string;
+  citations?: Citation[];
 }
 
 export interface FamilyAnalysis {
@@ -59,6 +87,9 @@ export interface FamilyAnalysis {
   energy_distribution: Record<string, number>;
   energy_roles: Array<{ name: string; role: string }>;
   ai_interpretation?: string;
+  analysis_mode?: 'online' | 'offline';
+  sources?: Citation[];
+  annual_forecast?: FamilyForecast | null;
 }
 
 export interface MemberForecast {
@@ -116,6 +147,8 @@ export const api = {
       birth_year: number;
       birth_month?: number;
       birth_day?: number;
+      birth_calendar?: 'solar' | 'lunar';
+      is_leap_month?: boolean;
     }
   ): Promise<FamilyMember> =>
     apiFetch(`/api/families/${familyId}/members`, {
@@ -142,4 +175,15 @@ export const api = {
     }),
 
   getCanChi: (year: number) => apiFetch(`/api/astrology/can-chi/${year}`),
+
+  convertDate: (data: { year: number; month: number; day: number; calendar: 'solar' | 'lunar'; is_leap_month?: boolean }) =>
+    apiFetch('/api/astrology/convert-date', {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getSources: (): Promise<{ sources: Citation[] }> => apiFetch('/api/astrology/sources'),
+
+  aiHealth: (): Promise<{ openai_configured: boolean; mode: 'online' | 'offline' }> =>
+    apiFetch('/api/health/ai'),
 };

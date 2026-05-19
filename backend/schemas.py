@@ -14,6 +14,13 @@ class FamilyMemberCreate(BaseModel):
     birth_month: Optional[int] = Field(None, ge=1, le=12)
     birth_day: Optional[int] = Field(None, ge=1, le=31)
     birth_hour: Optional[str] = None
+    birth_calendar: Optional[str] = Field(
+        "solar",
+        description="Loại lịch của ngày sinh: 'solar' (dương) hoặc 'lunar' (âm)",
+    )
+    is_leap_month: Optional[bool] = Field(
+        False, description="Tháng nhuận (chỉ dùng khi birth_calendar='lunar')"
+    )
 
 
 class FamilyMemberResponse(BaseModel):
@@ -26,6 +33,14 @@ class FamilyMemberResponse(BaseModel):
     birth_month: Optional[int] = None
     birth_day: Optional[int] = None
     birth_hour: Optional[str] = None
+    birth_calendar: Optional[str] = "solar"
+    solar_year: Optional[int] = None
+    solar_month: Optional[int] = None
+    solar_day: Optional[int] = None
+    lunar_year: Optional[int] = None
+    lunar_month: Optional[int] = None
+    lunar_day: Optional[int] = None
+    is_leap_month: Optional[bool] = False
     thien_can: Optional[str] = None
     dia_chi: Optional[str] = None
     ngu_hanh: Optional[str] = None
@@ -35,6 +50,14 @@ class FamilyMemberResponse(BaseModel):
 
     class Config:
         from_attributes = True
+
+
+class DateConversionRequest(BaseModel):
+    year: int = Field(..., ge=1900, le=2100)
+    month: int = Field(..., ge=1, le=12)
+    day: int = Field(..., ge=1, le=31)
+    calendar: str = Field("solar", description="'solar' hoặc 'lunar'")
+    is_leap_month: bool = False
 
 
 class FamilyCreate(BaseModel):
