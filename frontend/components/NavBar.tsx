@@ -1,10 +1,14 @@
 "use client";
 
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
+import { useAuth } from "@/components/AuthProvider";
 
 export function NavBar() {
   const pathname = usePathname();
+  const router = useRouter();
+  const { user, logout, config } = useAuth();
+  const authEnabled = config?.auth_enabled !== false;
 
   const links = [
     { href: "/", label: "Trang Chủ" },
@@ -51,15 +55,56 @@ export function NavBar() {
               {link.label}
             </Link>
           ))}
-          <Link
-            href="/families"
-            className="ml-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
-            style={{
-              background: "linear-gradient(135deg, #8b5cf6, #ec4899)",
-            }}
-          >
-            + Tạo Gia Đình
-          </Link>
+
+          {authEnabled && user ? (
+            <div className="ml-2 flex items-center gap-2">
+              {/* eslint-disable-next-line @next/next/no-img-element */}
+              {user.picture ? (
+                <img
+                  src={user.picture}
+                  alt={user.name || user.email}
+                  className="w-8 h-8 rounded-full"
+                  referrerPolicy="no-referrer"
+                />
+              ) : (
+                <div className="w-8 h-8 rounded-full flex items-center justify-center text-white text-xs"
+                  style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}>
+                  {(user.name || user.email || "?").charAt(0).toUpperCase()}
+                </div>
+              )}
+              <div className="hidden md:block leading-tight">
+                <div className="text-xs font-semibold">{user.name || user.email}</div>
+                <button
+                  onClick={() => {
+                    logout();
+                    router.replace("/login");
+                  }}
+                  className="text-[11px] underline"
+                  style={{ color: "var(--muted)" }}
+                >
+                  Đăng xuất
+                </button>
+              </div>
+              <button
+                onClick={() => {
+                  logout();
+                  router.replace("/login");
+                }}
+                className="md:hidden text-xs px-2 py-1 rounded-lg"
+                style={{ background: "#f3f4f6" }}
+              >
+                Thoát
+              </button>
+            </div>
+          ) : authEnabled ? (
+            <Link
+              href="/login"
+              className="ml-2 px-4 py-2 rounded-lg text-sm font-medium text-white"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+            >
+              Đăng nhập
+            </Link>
+          ) : null}
         </div>
       </div>
     </nav>

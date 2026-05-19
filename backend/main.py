@@ -11,18 +11,27 @@ from sqlalchemy.orm import sessionmaker, Session
 from dotenv import load_dotenv
 import json
 
-from models import Base, Family, FamilyMember
+from models import Base, Family, FamilyMember, User, SavedAnalysis
 from schemas import (
-    FamilyCreate, FamilyResponse,
-    FamilyMemberCreate, FamilyMemberResponse,
+    FamilyCreate, FamilyUpdate, FamilyResponse,
+    FamilyMemberCreate, FamilyMemberUpdate, FamilyMemberResponse,
     FamilyAnalysisResponse, AnnualForecastRequest, ChatRequest,
     DateConversionRequest,
+    GoogleLoginRequest, TokenResponse, UserResponse,
+    SavedAnalysisCreate, SavedAnalysisSummary, SavedAnalysisDetail,
 )
 from astrology_engine import get_can_chi_from_year, get_ngu_hanh, get_personality_traits, get_energy_role
 from compatibility_engine import analyze_family, get_family_annual_forecast
 from ai_layer import get_ai_interpretation, get_ai_family_chat, has_openai_key
 from lunar_calendar import solar_to_lunar, lunar_to_solar
 from data_sources import all_sources
+from auth import (
+    verify_google_id_token,
+    upsert_user_from_google,
+    create_access_token,
+    get_current_user_factory,
+    auth_enabled,
+)
 
 load_dotenv()
 
@@ -42,7 +51,7 @@ async def lifespan(app: FastAPI):
 
 
 def _migrate_add_lunar_columns():
-    """Add lunar/solar columns to family_members if they're missing.
+    """Add new columns to family_members / families if they're missing.
 
     SQLAlchemy's create_all() does not alter existing tables. For users
     upgrading from a previous version we issue ALTER TABLE statements
@@ -54,7 +63,7 @@ def _migrate_add_lunar_columns():
     satisfy linters that flag any string-built SQL.
     """
     import re
-    new_columns = [
+    member_new_columns = [
         ("birth_calendar", "VARCHAR(10) DEFAULT 'solar'"),
         ("solar_year", "INTEGER"),
         ("solar_month", "INTEGER"),
@@ -63,26 +72,32 @@ def _migrate_add_lunar_columns():
         ("lunar_month", "INTEGER"),
         ("lunar_day", "INTEGER"),
         ("is_leap_month", "INTEGER DEFAULT 0"),
+        ("occupation", "VARCHAR(200)"),
+    ]
+    family_new_columns = [
+        ("owner_id", "INTEGER"),
     ]
     allowed_type_pattern = re.compile(r"^[A-Z]+(\([0-9]+\))?( DEFAULT '?[A-Za-z0-9 ]+'?)?$")
     ident_pattern = re.compile(r"^[a-z_][a-z0-9_]*$")
     from sqlalchemy import text, inspect
     inspector = inspect(engine)
-    if "family_members" not in inspector.get_table_names():
-        return
-    existing = {c["name"] for c in inspector.get_columns("family_members")}
+    tables = inspector.get_table_names()
     with engine.begin() as conn:
-        for name, col_type in new_columns:
-            if not ident_pattern.match(name) or not allowed_type_pattern.match(col_type):
-                # Defensive guard - constants above already pass, but
-                # this prevents accidental future expansion with unsafe values.
+        for table, cols in (
+            ("family_members", member_new_columns),
+            ("families", family_new_columns),
+        ):
+            if table not in tables:
                 continue
-            if name not in existing:
-                try:
-                    conn.execute(text(f"ALTER TABLE family_members ADD COLUMN {name} {col_type}"))
-                except Exception as e:
-                    # Non-fatal: log to stderr and continue.
-                    print(f"[migration] could not add column {name}: {e}")
+            existing = {c["name"] for c in inspector.get_columns(table)}
+            for name, col_type in cols:
+                if not ident_pattern.match(name) or not allowed_type_pattern.match(col_type):
+                    continue
+                if name not in existing:
+                    try:
+                        conn.execute(text(f"ALTER TABLE {table} ADD COLUMN {name} {col_type}"))
+                    except Exception as e:
+                        print(f"[migration] could not add column {name} on {table}: {e}")
 
 
 app = FastAPI(
@@ -107,6 +122,25 @@ def get_db():
         yield db
     finally:
         db.close()
+
+
+get_current_user = get_current_user_factory(get_db)
+
+
+def _ensure_family_owner(family: Family, user: User | None):
+    """Ensure the current user owns the family (when auth is enabled).
+
+    Legacy families (owner_id is NULL, created before auth) are accessible
+    to any authenticated user. After this access they are claimed by the
+    first user who touches them.
+    """
+    if not auth_enabled() or user is None:
+        return
+    if family.owner_id is None:
+        family.owner_id = user.id
+        return
+    if family.owner_id != user.id:
+        raise HTTPException(status_code=403, detail="Bạn không có quyền truy cập gia đình này")
 
 
 def compute_member_astrology(birth_year: int) -> dict:
@@ -196,7 +230,11 @@ def member_to_dict(member: FamilyMember) -> dict:
         "name": member.name,
         "role": member.role,
         "gender": member.gender,
+        "occupation": member.occupation or "",
         "birth_year": member.birth_year,
+        "birth_month": member.birth_month,
+        "birth_day": member.birth_day,
+        "birth_hour": member.birth_hour or "",
         "birth_calendar": member.birth_calendar or "solar",
         "solar_year": member.solar_year,
         "solar_month": member.solar_month,
@@ -213,24 +251,117 @@ def member_to_dict(member: FamilyMember) -> dict:
     }
 
 
+def _sort_key_for_birth(m: dict) -> tuple:
+    """Best-effort comparable date key for ordering children by birth."""
+    y = m.get("solar_year") or m.get("lunar_year") or m.get("birth_year") or 0
+    mo = m.get("solar_month") or m.get("lunar_month") or m.get("birth_month") or 0
+    d = m.get("solar_day") or m.get("lunar_day") or m.get("birth_day") or 0
+    return (y, mo, d, m.get("id") or 0)
+
+
+def _annotate_members(members_data: list[dict]) -> list[dict]:
+    """Add derived fields: age, birth_order/birth_order_label for children."""
+    from datetime import datetime as _dt
+
+    current_year = _dt.now().year
+    children = [m for m in members_data if (m.get("role") or "") == "con"]
+    children_sorted = sorted(children, key=_sort_key_for_birth)
+    total = len(children_sorted)
+    # Use stable member ids as keys. Fallback to a tuple key when an id is
+    # missing (e.g. preview payloads without DB persistence).
+    order_map: dict[object, tuple[int, str]] = {}
+    for idx, ch in enumerate(children_sorted):
+        order = idx + 1
+        if total == 1:
+            label = "con duy nhất"
+        elif order == 1:
+            label = "con đầu (con cả)"
+        elif order == total:
+            label = "con út"
+        else:
+            label = f"con thứ {order}"
+        key = ch.get("id") if ch.get("id") is not None else (
+            "k", ch.get("name"), ch.get("birth_year"), ch.get("birth_month"), ch.get("birth_day")
+        )
+        order_map[key] = (order, label)
+
+    for m in members_data:
+        by = m.get("birth_year")
+        m["age"] = (current_year - by) if isinstance(by, int) and by > 0 else None
+        m_key = m.get("id") if m.get("id") is not None else (
+            "k", m.get("name"), m.get("birth_year"), m.get("birth_month"), m.get("birth_day")
+        )
+        if m_key in order_map:
+            order, label = order_map[m_key]
+            m["birth_order"] = order
+            m["birth_order_label"] = label
+            m["siblings_count"] = total
+        else:
+            m["birth_order"] = None
+            m["birth_order_label"] = None
+            m["siblings_count"] = total if (m.get("role") or "") == "con" else 0
+    return members_data
+
+
+# ============ Auth Endpoints ============
+
+@app.get("/api/auth/config")
+def auth_config():
+    """Public: return whether auth is required and the Google client id
+    so the frontend can render the login button correctly."""
+    return {
+        "auth_enabled": auth_enabled(),
+        "google_client_id": os.getenv("GOOGLE_CLIENT_ID", ""),
+    }
+
+
+@app.post("/api/auth/google", response_model=TokenResponse)
+def login_with_google(req: GoogleLoginRequest, db: Session = Depends(get_db)):
+    """Exchange a Google ID token for an application JWT."""
+    info = verify_google_id_token(req.credential)
+    user = upsert_user_from_google(db, info)
+    token = create_access_token(user)
+    return TokenResponse(access_token=token, user=UserResponse.model_validate(user))
+
+
+@app.get("/api/auth/me", response_model=UserResponse)
+def get_me(user: User = Depends(get_current_user)):
+    if user is None:
+        raise HTTPException(status_code=401, detail="Chưa đăng nhập")
+    return user
+
+
 # ============ Family Endpoints ============
 
 @app.get("/")
 def root():
-    return {"message": "Tử Vi Gia Đình API", "version": "1.0.0"}
+    return {"message": "Tử Vi Gia Đình API", "version": "1.1.0"}
 
 
 @app.get("/api/families", response_model=list[FamilyResponse])
-def get_families(db: Session = Depends(get_db)):
-    """Get all families"""
-    families = db.query(Family).all()
-    return families
+def get_families(
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Get families owned by the current user (or all if auth is disabled)."""
+    q = db.query(Family)
+    if auth_enabled() and user is not None:
+        q = q.filter((Family.owner_id == user.id) | (Family.owner_id.is_(None)))
+    return q.order_by(Family.created_at.desc()).all()
 
 
 @app.post("/api/families", response_model=FamilyResponse)
-def create_family(family: FamilyCreate, db: Session = Depends(get_db)):
-    """Create a new family"""
-    db_family = Family(name=family.name, description=family.description)
+def create_family(
+    family: FamilyCreate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Create a new family owned by the current user."""
+    db_family = Family(
+        name=family.name,
+        description=family.description,
+        owner_id=user.id if user else None,
+    )
     db.add(db_family)
     db.commit()
     db.refresh(db_family)
@@ -238,20 +369,52 @@ def create_family(family: FamilyCreate, db: Session = Depends(get_db)):
 
 
 @app.get("/api/families/{family_id}", response_model=FamilyResponse)
-def get_family(family_id: int, db: Session = Depends(get_db)):
+def get_family(
+    family_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
     """Get a specific family with all members"""
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
+    db.commit()  # persist potential ownership claim
+    return family
+
+
+@app.patch("/api/families/{family_id}", response_model=FamilyResponse)
+def update_family(
+    family_id: int,
+    payload: FamilyUpdate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Edit a family's name and/or description."""
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
+    if payload.name is not None:
+        family.name = payload.name
+    if payload.description is not None:
+        family.description = payload.description
+    db.commit()
+    db.refresh(family)
     return family
 
 
 @app.delete("/api/families/{family_id}")
-def delete_family(family_id: int, db: Session = Depends(get_db)):
+def delete_family(
+    family_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
     """Delete a family"""
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
     db.delete(family)
     db.commit()
     return {"message": "Đã xóa gia đình"}
@@ -263,7 +426,8 @@ def delete_family(family_id: int, db: Session = Depends(get_db)):
 def add_family_member(
     family_id: int,
     member: FamilyMemberCreate,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
     """Add a member to a family.
 
@@ -274,6 +438,7 @@ def add_family_member(
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
 
     birth_calendar = (member.birth_calendar or "solar").lower()
     if birth_calendar not in ("solar", "lunar"):
@@ -304,6 +469,7 @@ def add_family_member(
         name=member.name,
         role=member.role,
         gender=member.gender,
+        occupation=member.occupation,
         birth_year=member.birth_year,
         birth_month=member.birth_month,
         birth_day=member.birth_day,
@@ -328,9 +494,83 @@ def add_family_member(
     return db_member
 
 
+@app.patch("/api/families/{family_id}/members/{member_id}", response_model=FamilyMemberResponse)
+def update_family_member(
+    family_id: int,
+    member_id: int,
+    payload: FamilyMemberUpdate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Update a family member. Recomputes Can-Chi/Ngũ hành if birth
+    date or calendar changes."""
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
+
+    db_member = db.query(FamilyMember).filter(
+        FamilyMember.id == member_id, FamilyMember.family_id == family_id
+    ).first()
+    if not db_member:
+        raise HTTPException(status_code=404, detail="Không tìm thấy thành viên")
+
+    data = payload.model_dump(exclude_unset=True)
+
+    # Simple scalar updates
+    for f in ("name", "role", "gender", "occupation", "birth_hour"):
+        if f in data and data[f] is not None:
+            setattr(db_member, f, data[f])
+
+    # Date / calendar update requires re-resolving
+    date_keys = {"birth_year", "birth_month", "birth_day", "birth_calendar", "is_leap_month"}
+    if date_keys & data.keys():
+        new_year = data.get("birth_year", db_member.birth_year)
+        new_month = data.get("birth_month", db_member.birth_month)
+        new_day = data.get("birth_day", db_member.birth_day)
+        new_cal = (data.get("birth_calendar") or db_member.birth_calendar or "solar").lower()
+        new_leap = bool(data.get("is_leap_month", bool(db_member.is_leap_month)))
+        if new_cal not in ("solar", "lunar"):
+            raise HTTPException(status_code=400, detail="birth_calendar phải là 'solar' hoặc 'lunar'")
+        try:
+            dates = resolve_birth_dates(new_cal, new_year, new_month, new_day, new_leap)
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Không thể chuyển đổi ngày sinh: {e}")
+        astro = compute_member_astrology(dates["effective_lunar_year"])
+        db_member.birth_year = new_year
+        db_member.birth_month = new_month
+        db_member.birth_day = new_day
+        db_member.birth_calendar = new_cal
+        db_member.solar_year = dates["solar_year"]
+        db_member.solar_month = dates["solar_month"]
+        db_member.solar_day = dates["solar_day"]
+        db_member.lunar_year = dates["lunar_year"]
+        db_member.lunar_month = dates["lunar_month"]
+        db_member.lunar_day = dates["lunar_day"]
+        db_member.is_leap_month = 1 if dates["is_leap_month"] else 0
+        db_member.thien_can = astro["thien_can"]
+        db_member.dia_chi = astro["dia_chi"]
+        db_member.ngu_hanh = astro["ngu_hanh"]
+        db_member.nap_am = astro["nap_am"]
+        db_member.energy_role = astro["energy_role"]
+
+    db.commit()
+    db.refresh(db_member)
+    return db_member
+
+
 @app.delete("/api/families/{family_id}/members/{member_id}")
-def delete_member(family_id: int, member_id: int, db: Session = Depends(get_db)):
+def delete_member(
+    family_id: int,
+    member_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
     """Delete a family member"""
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
     member = db.query(FamilyMember).filter(
         FamilyMember.id == member_id,
         FamilyMember.family_id == family_id
@@ -345,11 +585,16 @@ def delete_member(family_id: int, member_id: int, db: Session = Depends(get_db))
 # ============ Analysis Endpoints ============
 
 @app.get("/api/families/{family_id}/analysis")
-async def get_family_analysis(family_id: int, db: Session = Depends(get_db)):
+async def get_family_analysis(
+    family_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
     """Get comprehensive family compatibility analysis"""
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
 
     if len(family.members) < 2:
         raise HTTPException(
@@ -357,7 +602,7 @@ async def get_family_analysis(family_id: int, db: Session = Depends(get_db)):
             detail="Cần ít nhất 2 thành viên để phân tích tương hợp"
         )
 
-    members_data = [member_to_dict(m) for m in family.members]
+    members_data = _annotate_members([member_to_dict(m) for m in family.members])
 
     # Run compatibility analysis
     analysis = analyze_family(members_data)
@@ -380,6 +625,7 @@ async def get_family_analysis(family_id: int, db: Session = Depends(get_db)):
     analysis["ai_interpretation"] = ai_interpretation
     analysis["analysis_mode"] = "online" if has_openai_key() else "offline"
     analysis["sources"] = all_sources()
+    analysis["members_snapshot"] = members_data
 
     return {
         "family_name": family.name,
@@ -392,31 +638,159 @@ async def get_family_analysis(family_id: int, db: Session = Depends(get_db)):
 def get_annual_forecast(
     family_id: int,
     request: AnnualForecastRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
     """Get annual forecast for the family"""
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
 
-    members_data = [member_to_dict(m) for m in family.members]
+    members_data = _annotate_members([member_to_dict(m) for m in family.members])
     forecast = get_family_annual_forecast(members_data, request.year)
 
     return forecast
+
+
+# ============ Saved Analyses Endpoints ============
+
+@app.get("/api/families/{family_id}/saved-analyses", response_model=list[SavedAnalysisSummary])
+def list_saved_analyses(
+    family_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
+    rows = (
+        db.query(SavedAnalysis)
+        .filter(SavedAnalysis.family_id == family_id)
+        .order_by(SavedAnalysis.created_at.desc())
+        .all()
+    )
+    return rows
+
+
+@app.post("/api/families/{family_id}/saved-analyses", response_model=SavedAnalysisDetail)
+async def save_family_analysis(
+    family_id: int,
+    payload: SavedAnalysisCreate,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    """Compute fresh analysis and persist a snapshot."""
+    family = db.query(Family).filter(Family.id == family_id).first()
+    if not family:
+        raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
+    if len(family.members) < 2:
+        raise HTTPException(
+            status_code=400, detail="Cần ít nhất 2 thành viên để phân tích",
+        )
+
+    members_data = _annotate_members([member_to_dict(m) for m in family.members])
+    analysis = analyze_family(members_data)
+    from datetime import datetime as _dt
+    current_year = _dt.now().year
+    try:
+        analysis["annual_forecast"] = get_family_annual_forecast(members_data, current_year)
+    except Exception:
+        analysis["annual_forecast"] = None
+    family_data = {"name": family.name, "members": members_data}
+    analysis["ai_interpretation"] = await get_ai_interpretation(family_data, analysis)
+    analysis["analysis_mode"] = "online" if has_openai_key() else "offline"
+    analysis["sources"] = all_sources()
+    analysis["members_snapshot"] = members_data
+    analysis["family_name"] = family.name
+    analysis["members_count"] = len(family.members)
+
+    record = SavedAnalysis(
+        family_id=family_id,
+        user_id=user.id if user else None,
+        title=payload.title or f"Phân tích {current_year}",
+        note=payload.note,
+        payload=json.dumps(analysis, ensure_ascii=False),
+        family_overall_score=analysis.get("family_overall_score"),
+        analysis_mode=analysis.get("analysis_mode"),
+    )
+    db.add(record)
+    db.commit()
+    db.refresh(record)
+
+    return SavedAnalysisDetail(
+        id=record.id,
+        family_id=record.family_id,
+        title=record.title,
+        note=record.note,
+        family_overall_score=record.family_overall_score,
+        analysis_mode=record.analysis_mode,
+        created_at=record.created_at,
+        payload=analysis,
+    )
+
+
+@app.get("/api/saved-analyses/{analysis_id}", response_model=SavedAnalysisDetail)
+def get_saved_analysis(
+    analysis_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    record = db.query(SavedAnalysis).filter(SavedAnalysis.id == analysis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản phân tích")
+    family = db.query(Family).filter(Family.id == record.family_id).first()
+    if family:
+        _ensure_family_owner(family, user)
+    try:
+        payload = json.loads(record.payload)
+    except Exception:
+        payload = {}
+    return SavedAnalysisDetail(
+        id=record.id,
+        family_id=record.family_id,
+        title=record.title,
+        note=record.note,
+        family_overall_score=record.family_overall_score,
+        analysis_mode=record.analysis_mode,
+        created_at=record.created_at,
+        payload=payload,
+    )
+
+
+@app.delete("/api/saved-analyses/{analysis_id}")
+def delete_saved_analysis(
+    analysis_id: int,
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
+):
+    record = db.query(SavedAnalysis).filter(SavedAnalysis.id == analysis_id).first()
+    if not record:
+        raise HTTPException(status_code=404, detail="Không tìm thấy bản phân tích")
+    family = db.query(Family).filter(Family.id == record.family_id).first()
+    if family:
+        _ensure_family_owner(family, user)
+    db.delete(record)
+    db.commit()
+    return {"message": "Đã xóa"}
 
 
 @app.post("/api/families/{family_id}/chat")
 async def family_chat(
     family_id: int,
     request: ChatRequest,
-    db: Session = Depends(get_db)
+    db: Session = Depends(get_db),
+    user: User | None = Depends(get_current_user),
 ):
     """AI Family Advisor chat"""
     family = db.query(Family).filter(Family.id == family_id).first()
     if not family:
         raise HTTPException(status_code=404, detail="Không tìm thấy gia đình")
+    _ensure_family_owner(family, user)
 
-    members_data = [member_to_dict(m) for m in family.members]
+    members_data = _annotate_members([member_to_dict(m) for m in family.members])
 
     # Build analysis context with pair-by-pair summary so the model can
     # reference specific Sinh-Khắc relationships when answering.

@@ -1,11 +1,54 @@
 const API_BASE = process.env.NEXT_PUBLIC_API_URL || 'http://localhost:8000';
 
+const AUTH_TOKEN_KEY = 'tvgd_token';
+const AUTH_USER_KEY = 'tvgd_user';
+
+export interface AuthUser {
+  id: number;
+  email: string;
+  name?: string;
+  picture?: string;
+  created_at: string;
+}
+
+export interface AuthConfig {
+  auth_enabled: boolean;
+  google_client_id: string;
+}
+
+export const authStore = {
+  getToken(): string | null {
+    if (typeof window === 'undefined') return null;
+    return window.localStorage.getItem(AUTH_TOKEN_KEY);
+  },
+  setToken(token: string) {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(AUTH_TOKEN_KEY, token);
+  },
+  getUser(): AuthUser | null {
+    if (typeof window === 'undefined') return null;
+    const raw = window.localStorage.getItem(AUTH_USER_KEY);
+    if (!raw) return null;
+    try { return JSON.parse(raw) as AuthUser; } catch { return null; }
+  },
+  setUser(user: AuthUser) {
+    if (typeof window === 'undefined') return;
+    window.localStorage.setItem(AUTH_USER_KEY, JSON.stringify(user));
+  },
+  clear() {
+    if (typeof window === 'undefined') return;
+    window.localStorage.removeItem(AUTH_TOKEN_KEY);
+    window.localStorage.removeItem(AUTH_USER_KEY);
+  },
+};
+
 export interface FamilyMember {
   id: number;
   family_id: number;
   name: string;
   role: string;
   gender: string;
+  occupation?: string;
   birth_year: number;
   birth_month?: number;
   birth_day?: number;
@@ -130,23 +173,63 @@ export interface FamilyForecast {
 }
 
 async function apiFetch(path: string, options?: RequestInit) {
+  const headers: Record<string, string> = {
+    'Content-Type': 'application/json',
+    ...(options?.headers as Record<string, string> | undefined),
+  };
+  const token = authStore.getToken();
+  if (token) headers['Authorization'] = `Bearer ${token}`;
+
   const response = await fetch(`${API_BASE}${path}`, {
-    headers: { 'Content-Type': 'application/json' },
     ...options,
+    headers,
   });
   if (!response.ok) {
+    if (response.status === 401) {
+      authStore.clear();
+    }
     const error = await response.json().catch(() => ({ detail: 'Lỗi không xác định' }));
     throw new Error(error.detail || `HTTP ${response.status}`);
   }
+  if (response.status === 204) return null;
   return response.json();
 }
 
+export interface SavedAnalysisSummary {
+  id: number;
+  family_id: number;
+  title?: string;
+  note?: string;
+  family_overall_score?: number;
+  analysis_mode?: 'online' | 'offline';
+  created_at: string;
+}
+
+export interface SavedAnalysisDetail extends SavedAnalysisSummary {
+  payload: FamilyAnalysis;
+}
+
 export const api = {
+  // Auth
+  getAuthConfig: (): Promise<AuthConfig> => apiFetch('/api/auth/config'),
+  loginGoogle: (credential: string): Promise<{ access_token: string; token_type: string; user: AuthUser }> =>
+    apiFetch('/api/auth/google', {
+      method: 'POST',
+      body: JSON.stringify({ credential }),
+    }),
+  getMe: (): Promise<AuthUser> => apiFetch('/api/auth/me'),
+
   getFamilies: (): Promise<Family[]> => apiFetch('/api/families'),
 
   createFamily: (data: { name: string; description?: string }): Promise<Family> =>
     apiFetch('/api/families', {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateFamily: (id: number, data: { name?: string; description?: string }): Promise<Family> =>
+    apiFetch(`/api/families/${id}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 
@@ -161,6 +244,7 @@ export const api = {
       name: string;
       role: string;
       gender: string;
+      occupation?: string;
       birth_year: number;
       birth_month?: number;
       birth_day?: number;
@@ -170,6 +254,26 @@ export const api = {
   ): Promise<FamilyMember> =>
     apiFetch(`/api/families/${familyId}/members`, {
       method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  updateMember: (
+    familyId: number,
+    memberId: number,
+    data: Partial<{
+      name: string;
+      role: string;
+      gender: string;
+      occupation: string;
+      birth_year: number;
+      birth_month: number;
+      birth_day: number;
+      birth_calendar: 'solar' | 'lunar';
+      is_leap_month: boolean;
+    }>
+  ): Promise<FamilyMember> =>
+    apiFetch(`/api/families/${familyId}/members/${memberId}`, {
+      method: 'PATCH',
       body: JSON.stringify(data),
     }),
 
@@ -190,6 +294,22 @@ export const api = {
       method: 'POST',
       body: JSON.stringify({ family_id: familyId, question }),
     }),
+
+  // Saved analyses
+  listSavedAnalyses: (familyId: number): Promise<SavedAnalysisSummary[]> =>
+    apiFetch(`/api/families/${familyId}/saved-analyses`),
+
+  saveAnalysis: (familyId: number, data: { title?: string; note?: string }): Promise<SavedAnalysisDetail> =>
+    apiFetch(`/api/families/${familyId}/saved-analyses`, {
+      method: 'POST',
+      body: JSON.stringify(data),
+    }),
+
+  getSavedAnalysis: (id: number): Promise<SavedAnalysisDetail> =>
+    apiFetch(`/api/saved-analyses/${id}`),
+
+  deleteSavedAnalysis: (id: number): Promise<void> =>
+    apiFetch(`/api/saved-analyses/${id}`, { method: 'DELETE' }),
 
   getCanChi: (year: number) => apiFetch(`/api/astrology/can-chi/${year}`),
 

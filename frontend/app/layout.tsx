@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import "./globals.css";
 import { NavBar } from "@/components/NavBar";
+import { AuthProvider } from "@/components/AuthProvider";
+import { AuthGate } from "@/components/AuthGate";
 
 export const metadata: Metadata = {
   title: "Tử Vi Gia Đình - Family Intelligence System",
@@ -15,14 +17,16 @@ export default function RootLayout({
   return (
     <html lang="vi">
       <body>
-        <NavBar />
-        <main className="min-h-screen">
-          {children}
-        </main>
-        <footer className="py-8 text-center text-sm" style={{ color: 'var(--muted)', borderTop: '1px solid var(--border)' }}>
-          <p>🌟 Tử Vi Gia Đình - Hệ thống phân tích quan hệ gia đình theo tri thức Đông phương</p>
-          <p className="mt-1 opacity-60">Dành cho mục đích tham khảo và phát triển bản thân</p>
-        </footer>
+        <AuthProvider>
+          <NavBar />
+          <main className="min-h-screen">
+            <AuthGate>{children}</AuthGate>
+          </main>
+          <footer className="py-8 text-center text-sm" style={{ color: 'var(--muted)', borderTop: '1px solid var(--border)' }}>
+            <p>🌟 Tử Vi Gia Đình - Hệ thống phân tích quan hệ gia đình theo tri thức Đông phương</p>
+            <p className="mt-1 opacity-60">Dành cho mục đích tham khảo và phát triển bản thân</p>
+          </footer>
+        </AuthProvider>
       </body>
     </html>
   );
