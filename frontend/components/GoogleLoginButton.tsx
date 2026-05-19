@@ -104,7 +104,7 @@ export function GoogleLoginButton({ onSuccess, allowDevPaste = true }: Props) {
     if (!allowDevPaste) {
       return (
         <div className="text-sm" style={{ color: "var(--muted)" }}>
-          Google Client ID chưa được cấu hình (NEXT_PUBLIC_GOOGLE_CLIENT_ID).
+          Google Client ID chưa được cấu hình (GOOGLE_CLIENT_ID ở backend).
         </div>
       );
     }
@@ -153,7 +153,7 @@ function DevPasteFallback({
         className="p-3 rounded-lg text-xs mb-3"
         style={{ background: "#fef3c7", color: "#92400e" }}
       >
-        ⚠️ Chưa cấu hình <code>NEXT_PUBLIC_GOOGLE_CLIENT_ID</code> -
+        ⚠️ Chưa cấu hình <code>GOOGLE_CLIENT_ID</code> ở backend -
         chế độ phát triển: dán Google ID token thủ công để đăng nhập.
       </div>
       <textarea

@@ -30,29 +30,36 @@ Backend (`backend/.env`):
 - `GOOGLE_CLIENT_ID` - Client ID cua Google OAuth 2.0 (Web)
 - `JWT_SECRET` - Khoa bi mat de ky JWT (doi sang chuoi ngau nhien dai)
 - `AUTH_ENABLED` - `true` (mac dinh) yeu cau dang nhap; dat `false` de tat auth cho dev
+- `DEV_MODE` - `false` (mac dinh), chi dat `true` khi dev local dac biet
 
 Frontend (`frontend/.env.local`):
-- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` - Cung gia tri voi backend
 - `NEXT_PUBLIC_API_URL` - URL cua backend (mac dinh `http://localhost:8000`)
+
+Docker Compose (`.env` o thu muc goc):
+- `GOOGLE_CLIENT_ID` - duoc inject vao backend
+- `JWT_SECRET`, `AUTH_ENABLED`, `DEV_MODE`, `OPENAI_API_KEY` (tuy chon)
+- `NEXT_PUBLIC_API_URL` (tuy chon, mac dinh `http://localhost:8000`)
 
 Lay Client ID tai Google Cloud Console > APIs & Services > Credentials >
 OAuth 2.0 Client IDs (Application type: Web), va them URL frontend
-(vd `http://localhost:3000`) vao "Authorized JavaScript origins".
+(vd `http://localhost:3000`, `http://127.0.0.1:3000`) vao "Authorized JavaScript origins".
+
+Luu y: frontend hien tai lay `google_client_id` tu backend endpoint `/api/auth/config`,
+khong can dat `NEXT_PUBLIC_GOOGLE_CLIENT_ID`.
 
 ---
 
 ## Cach Chay
 
 ### Cach 1: Chay truc tiep (Development)
-
 **Backend (FastAPI):**
 ```bash
 cd backend
 pip install -r requirements.txt
 
-# Tuy chon: cau hinh API key
+# Cau hinh env (bao gom GOOGLE_CLIENT_ID)
 cp .env.example .env
-# Chinh sua .env va them OPENAI_API_KEY neu muon dung AI that
+# Chinh sua .env: GOOGLE_CLIENT_ID, JWT_SECRET, AUTH_ENABLED...
 
 python -m uvicorn main:app --reload --port 8000
 ```
@@ -71,8 +78,10 @@ Mo trinh duyet: **http://localhost:3000**
 ### Cach 2: Docker Compose
 
 ```bash
-# Tuy chon: tao file .env o thu muc goc
-echo "OPENAI_API_KEY=your_key_here" > .env
+# Tao file .env o thu muc goc tu mau
+cp .env.example .env
+
+# Chinh sua .env: GOOGLE_CLIENT_ID, JWT_SECRET...
 
 # Chay
 docker compose up -d
