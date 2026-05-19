@@ -11,7 +11,9 @@ Issues short-lived JWTs that the frontend includes as
 """
 from __future__ import annotations
 
+import logging
 import os
+import secrets
 import time
 from datetime import datetime, timedelta
 from typing import Optional
@@ -23,18 +25,41 @@ from sqlalchemy.orm import Session
 
 from models import User
 
+logger = logging.getLogger(__name__)
+
 
 # ============ Config ============
 
-JWT_SECRET = os.getenv("JWT_SECRET", os.getenv("SECRET_KEY", "change-me-in-production"))
+# Toggle to disable auth (useful for first run / local dev when no
+# Google client id is configured yet). When AUTH_ENABLED is false ALL
+# authentication checks are bypassed.
+AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() not in ("0", "false", "no")
+
+# JWT secret. Must be configured in any production deployment. When
+# missing we generate a random per-process secret so existing tokens are
+# invalidated on every restart (fail-secure) instead of using a known
+# default that anyone can forge tokens against.
+_JWT_SECRET_ENV = os.getenv("JWT_SECRET") or os.getenv("SECRET_KEY")
+if _JWT_SECRET_ENV:
+    JWT_SECRET = _JWT_SECRET_ENV
+else:
+    JWT_SECRET = secrets.token_urlsafe(48)
+    if AUTH_ENABLED:
+        logger.warning(
+            "JWT_SECRET is not set. Generated an ephemeral per-process secret; "
+            "issued tokens will be invalidated on every restart. Set JWT_SECRET "
+            "in the environment for production deployments."
+        )
+
 JWT_ALGORITHM = "HS256"
 JWT_EXP_HOURS = int(os.getenv("JWT_EXP_HOURS", "24"))
 
 GOOGLE_CLIENT_ID = os.getenv("GOOGLE_CLIENT_ID", "")
 
-# Toggle to disable auth (useful for first run / local dev when no
-# Google client id is configured yet).
-AUTH_ENABLED = os.getenv("AUTH_ENABLED", "true").lower() not in ("0", "false", "no")
+# Explicit dev mode flag to enable insecure helpers (e.g., decoding
+# Google ID tokens without signature verification when google-auth is
+# unavailable). Defaults to off so production deployments are safe.
+DEV_MODE = os.getenv("DEV_MODE", "").lower() in ("1", "true", "yes")
 
 
 bearer_scheme = HTTPBearer(auto_error=False)
@@ -45,9 +70,10 @@ bearer_scheme = HTTPBearer(auto_error=False)
 def verify_google_id_token(credential: str) -> dict:
     """Verify a Google ID token (JWT) and return its payload.
 
-    Falls back to a lightweight in-process JWT decode (no signature
-    check) when google-auth isn't installed, which is acceptable for
-    local development but should NOT be relied on in production.
+    Always uses google-auth to verify the signature and issuer against
+    Google's public keys. If google-auth is not installed the request
+    fails closed unless DEV_MODE=true is explicitly set, in which case a
+    signature-less decode is performed (development only).
     """
     if not credential:
         raise HTTPException(status_code=400, detail="Thiếu Google credential")
@@ -70,7 +96,21 @@ def verify_google_id_token(credential: str) -> dict:
             raise HTTPException(status_code=401, detail="Issuer không hợp lệ")
         return info
     except ImportError:
-        # Dev fallback - decode without signature verification
+        if not DEV_MODE:
+            logger.error(
+                "google-auth is not installed; refusing to verify Google ID "
+                "token without signature verification. Install google-auth or "
+                "set DEV_MODE=true for local development."
+            )
+            raise HTTPException(
+                status_code=503,
+                detail="Hệ thống chưa cấu hình xác thực Google (thiếu google-auth)",
+            )
+        # DEV-only fallback - decode without signature verification.
+        logger.warning(
+            "DEV_MODE active: accepting Google ID token without signature "
+            "verification. Do NOT enable this in production."
+        )
         try:
             payload = jwt.get_unverified_claims(credential)
         except JWTError as e:
