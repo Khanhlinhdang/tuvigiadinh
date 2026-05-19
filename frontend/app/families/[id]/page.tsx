@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useEffect, use } from "react";
+import { useState, useEffect, use, useCallback } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, MemberForecast, PairCompatibility, SavedAnalysisSummary, SavedAnalysisDetail } from "@/lib/api";
+import { api, ExecutiveSummary, Family, FamilyAnalysis, FamilyForecast, FamilyMember, MemberForecast, PairCompatibility, PairSummary, SavedAnalysisSummary, SavedAnalysisDetail } from "@/lib/api";
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 const HANH_COLORS: Record<string, string> = {
@@ -56,11 +56,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     is_leap_month: false,
   });
 
-  useEffect(() => {
-    loadFamily();
-  }, [familyId]);
-
-  async function loadFamily() {
+  const loadFamily = useCallback(async () => {
     try {
       const data = await api.getFamily(familyId);
       setFamily(data);
@@ -69,7 +65,13 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     } finally {
       setLoading(false);
     }
-  }
+  }, [familyId]);
+
+  useEffect(() => {
+    // Standard mount/route-change data load; the async helper updates state after fetch completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadFamily();
+  }, [loadFamily]);
 
   async function addMember(e: React.FormEvent) {
     e.preventDefault();
@@ -132,8 +134,8 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     }
   }
 
-  async function loadAnalysis() {
-    if (analysis) return;
+  async function loadAnalysis(useAi = false) {
+    if (analysis && (!useAi || analysis.analysis_mode === "online")) return;
     setAnalysisLoading(true);
     setAnalysisProgress(5);
     // Simulated progress while waiting for backend - backend doesn't
@@ -147,7 +149,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
       });
     }, 350);
     try {
-      const data = await api.getFamilyAnalysis(familyId);
+      const data = await api.getFamilyAnalysis(familyId, useAi);
       setAnalysisProgress(100);
       setAnalysis(data);
     } catch (e: unknown) {
@@ -177,7 +179,11 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
         setSavingAnalysis(false);
         return;
       }
-      const saved = await api.saveAnalysis(familyId, { title: title || undefined });
+      const saved = await api.saveAnalysis(
+        familyId,
+        { title: title || undefined },
+        analysis?.analysis_mode === "online"
+      );
       await loadSaved();
       alert(`Đã lưu bản phân tích "${saved.title}" thành công.`);
     } catch (e: unknown) {
@@ -246,7 +252,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   function handleTabChange(tab: Tab) {
     setActiveTab(tab);
     if (tab === "analysis" && !analysis) {
-      loadAnalysis();
+      loadAnalysis(false);
     }
     if (tab === "forecast" && !forecast) {
       loadForecast();
@@ -410,7 +416,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
                     : analysisProgress < 60
                     ? "Tính toán Can - Chi, Ngũ hành, tương sinh tương khắc..."
                     : analysisProgress < 90
-                    ? "Đang gọi AI để tổng hợp diễn giải chiều sâu..."
+                    ? "Đang tổng hợp tóm tắt và báo cáo nhanh..."
                     : "Hoàn tất..."}
                 </p>
                 <ProgressBar value={analysisProgress} />
@@ -431,7 +437,13 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
                   {savingAnalysis ? "Đang lưu..." : "💾 Lưu kết quả này"}
                 </button>
               </div>
-              <AnalysisView analysis={analysis} onRefresh={() => { setAnalysis(null); loadAnalysis(); }} />
+              <AnalysisView
+                analysis={analysis}
+                onRefresh={(useAi = false) => {
+                  setAnalysis(null);
+                  loadAnalysis(useAi);
+                }}
+              />
             </>
           )}
 
@@ -442,7 +454,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
                 Nhấn để bắt đầu phân tích tương hợp gia đình
               </p>
               <button
-                onClick={loadAnalysis}
+                onClick={() => loadAnalysis(false)}
                 className="px-8 py-3 rounded-xl text-white font-semibold"
                 style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
               >
@@ -543,6 +555,130 @@ function ProgressBar({ value }: { value: number }) {
           background: "linear-gradient(90deg, #8b5cf6, #ec4899)",
         }}
       />
+    </div>
+  );
+}
+
+function PairSummaryCard({
+  title,
+  pair,
+  color,
+}: {
+  title: string;
+  pair?: PairSummary | null;
+  color: string;
+}) {
+  if (!pair) return null;
+  return (
+    <div
+      className="p-4 rounded-xl"
+      style={{ background: `${color}10`, border: `1px solid ${color}35` }}
+    >
+      <div className="text-xs uppercase font-semibold mb-2" style={{ color }}>
+        {title}
+      </div>
+      <div className="font-bold">
+        {pair.member1_name} ↔ {pair.member2_name}
+      </div>
+      <div className="text-sm mt-1" style={{ color: "var(--muted)" }}>
+        {pair.relationship_type || "Quan hệ"} · {pair.overall_score}/100 · {pair.compatibility_level}
+      </div>
+      {pair.headline && (
+        <div className="text-sm mt-2" style={{ color: "var(--foreground)" }}>
+          {pair.headline}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function InsightList({
+  title,
+  icon,
+  items,
+  color,
+}: {
+  title: string;
+  icon: string;
+  items: string[];
+  color: string;
+}) {
+  return (
+    <div
+      className="p-5 rounded-2xl"
+      style={{ background: "white", border: "1px solid var(--border)" }}
+    >
+      <h3 className="font-bold mb-3 flex items-center gap-2">
+        <span>{icon}</span>
+        <span>{title}</span>
+      </h3>
+      <div className="space-y-2">
+        {items.map((item, i) => (
+          <div key={i} className="flex gap-2 text-sm leading-relaxed">
+            <span
+              className="mt-1.5 w-2 h-2 rounded-full shrink-0"
+              style={{ background: color }}
+            />
+            <span>{item}</span>
+          </div>
+        ))}
+      </div>
+    </div>
+  );
+}
+
+function ExecutiveSummaryView({
+  summary,
+  scoreColor,
+}: {
+  summary: ExecutiveSummary;
+  scoreColor: (score: number) => string;
+}) {
+  return (
+    <div className="space-y-5">
+      <div
+        className="p-5 rounded-2xl"
+        style={{
+          background: "linear-gradient(135deg, #fff7ed, #faf5ff)",
+          border: "1px solid #e9d5ff",
+        }}
+      >
+        <div className="flex items-start gap-3">
+          <div className="text-3xl">✨</div>
+          <div>
+            <h2 className="font-bold text-xl mb-1">Tóm Tắt Dễ Hiểu</h2>
+            <p className="text-sm leading-relaxed" style={{ color: "var(--muted)" }}>
+              {summary.positioning_note}
+            </p>
+            {summary.energy_keeper && (
+              <div className="mt-3 inline-flex items-center gap-2 px-3 py-1.5 rounded-full text-sm"
+                style={{ background: "#ede9fe", color: "#6d28d9" }}
+              >
+                💫 Người giữ năng lượng: <strong>{summary.energy_keeper.name}</strong>
+              </div>
+            )}
+          </div>
+        </div>
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+        <PairSummaryCard
+          title="Cặp thuận lợi nhất"
+          pair={summary.best_pair}
+          color={scoreColor(summary.best_pair?.overall_score || 65)}
+        />
+        <PairSummaryCard
+          title="Cặp cần điều hòa"
+          pair={summary.attention_pair}
+          color={scoreColor(summary.attention_pair?.overall_score || 35)}
+        />
+      </div>
+
+      <div className="grid grid-cols-1 lg:grid-cols-3 gap-4">
+        <InsightList title="3 điểm mạnh" icon="✅" items={summary.strengths} color="#22c55e" />
+        <InsightList title="Điểm cần chú ý" icon="⚠️" items={summary.risks} color="#f59e0b" />
+        <InsightList title="Việc nên làm ngay" icon="🎯" items={summary.actions} color="#8b5cf6" />
+      </div>
     </div>
   );
 }
@@ -835,8 +971,16 @@ function AddMemberModal({ form, onChange, onSubmit, onClose }: AddMemberModalPro
   );
 }
 
-function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRefresh: () => void }) {
+function AnalysisView({
+  analysis,
+  onRefresh,
+}: {
+  analysis: FamilyAnalysis;
+  onRefresh: (useAi?: boolean) => void;
+}) {
   const [selectedPair, setSelectedPair] = useState(0);
+  const [showFullReport, setShowFullReport] = useState(false);
+  const hasInterpretation = Boolean(analysis.ai_interpretation?.trim());
 
   const scoreColor = (score: number) => {
     if (score >= 65) return "#22c55e";
@@ -845,8 +989,65 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
     return "#ef4444";
   };
 
+  async function shareSummary() {
+    const summary = analysis.executive_summary;
+    const text = [
+      `Tử Vi Gia Đình: ${analysis.family_name}`,
+      `Điểm tương hợp: ${analysis.family_overall_score}/100`,
+      summary?.best_pair
+        ? `Cặp thuận lợi: ${summary.best_pair.member1_name} - ${summary.best_pair.member2_name}`
+        : "",
+      summary?.attention_pair
+        ? `Cặp cần chú ý: ${summary.attention_pair.member1_name} - ${summary.attention_pair.member2_name}`
+        : "",
+      summary?.positioning_note || "Kết quả mang tính tham khảo văn hoá.",
+    ].filter(Boolean).join("\n");
+
+    if ("share" in navigator) {
+      try {
+        await navigator.share({ title: "Tử Vi Gia Đình", text });
+        return;
+      } catch {
+        // User cancelled or browser rejected share; fall back to clipboard.
+      }
+    }
+    try {
+      await navigator.clipboard?.writeText(text);
+      alert("Đã sao chép tóm tắt để chia sẻ.");
+    } catch {
+      alert("Không thể sao chép tự động. Hãy sao chép nội dung tóm tắt trực tiếp trên màn hình.");
+    }
+  }
+
   return (
     <div className="space-y-6 fade-in">
+      {/* Report actions */}
+      <div className="flex flex-wrap justify-end gap-2">
+        {analysis.analysis_mode !== "online" && (
+          <button
+            onClick={() => onRefresh(true)}
+            className="px-4 py-2 rounded-lg text-sm font-semibold"
+            style={{ background: "#dcfce7", color: "#166534", border: "1px solid #bbf7d0" }}
+          >
+            🤖 Tạo báo cáo AI chuyên sâu
+          </button>
+        )}
+        <button
+          onClick={shareSummary}
+          className="px-4 py-2 rounded-lg text-sm font-semibold"
+          style={{ background: "#ecfeff", color: "#0e7490", border: "1px solid #a5f3fc" }}
+        >
+          🔗 Chia sẻ tóm tắt
+        </button>
+        <button
+          onClick={() => window.print()}
+          className="px-4 py-2 rounded-lg text-sm font-semibold"
+          style={{ background: "#fef3c7", color: "#92400e", border: "1px solid #fde68a" }}
+        >
+          📄 Tải PDF / In
+        </button>
+      </div>
+
       {/* Overall Score */}
       <div
         className="p-6 rounded-2xl text-center"
@@ -862,6 +1063,10 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
         <div className="text-lg font-semibold mb-2">Điểm Tương Hợp Gia Đình</div>
         <p className="text-gray-300 text-sm max-w-xl mx-auto">{analysis.family_dynamics}</p>
       </div>
+
+      {analysis.executive_summary && (
+        <ExecutiveSummaryView summary={analysis.executive_summary} scoreColor={scoreColor} />
+      )}
 
       {/* Energy Distribution */}
       {Object.keys(analysis.energy_distribution).length > 0 && (
@@ -948,7 +1153,7 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
       )}
 
       {/* AI Interpretation */}
-      {analysis.ai_interpretation && (
+      {hasInterpretation && analysis.ai_interpretation && (
         <div
           className="rounded-2xl overflow-hidden"
           style={{ background: "white", border: "1px solid var(--border)" }}
@@ -978,8 +1183,27 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
               </span>
             )}
           </div>
-          <div className="p-6">
-            <MarkdownContent content={analysis.ai_interpretation} />
+          <div className="p-6 space-y-4">
+            {!showFullReport && (
+              <div
+                className="p-4 rounded-xl text-sm"
+                style={{ background: "#f8f4ff", border: "1px solid #e9d5ff" }}
+              >
+                Báo cáo chi tiết khá dài. Hãy đọc phần tóm tắt ở trên trước, sau đó mở toàn bộ
+                diễn giải khi cần xem căn cứ, phân tích từng thành viên và từng cặp quan hệ.
+              </div>
+            )}
+            <button
+              onClick={() => setShowFullReport((v) => !v)}
+              className="px-5 py-2 rounded-lg text-sm font-semibold"
+              style={{
+                background: showFullReport ? "#f3f4f6" : "linear-gradient(135deg, #8b5cf6, #ec4899)",
+                color: showFullReport ? "var(--foreground)" : "white",
+              }}
+            >
+              {showFullReport ? "Thu gọn báo cáo" : "Xem chi tiết đầy đủ"}
+            </button>
+            {showFullReport && <MarkdownContent content={analysis.ai_interpretation} />}
           </div>
         </div>
       )}
@@ -1012,7 +1236,7 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
 
       <div className="text-center">
         <button
-          onClick={onRefresh}
+          onClick={() => onRefresh(false)}
           className="px-6 py-2 rounded-lg text-sm font-medium"
           style={{ background: "#f3f4f6" }}
         >

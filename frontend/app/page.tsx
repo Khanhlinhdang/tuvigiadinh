@@ -12,7 +12,7 @@ const FEATURES = [
     desc: "Đánh giá tương hợp giữa các thành viên theo lục hợp, tam hợp, lục xung.",
   },
   {
-    icon: "��",
+    icon: "🤖",
     title: "AI Cố Vấn Gia Đình",
     desc: "Đặt câu hỏi và nhận lời khuyên cá nhân hóa từ AI hiểu tử vi Đông phương.",
   },
@@ -39,6 +39,33 @@ const ELEMENTS = [
   { symbol: "土", name: "Thổ", color: "#f59e0b", desc: "Ổn định & Nền tảng" },
   { symbol: "金", name: "Kim", color: "#a855f7", desc: "Quyết đoán & Kỷ luật" },
   { symbol: "水", name: "Thủy", color: "#3b82f6", desc: "Trí tuệ & Linh hoạt" },
+];
+
+const CURIOSITY_HOOKS = [
+  "Gia đình bạn ai là người giữ năng lượng chính?",
+  "Vợ chồng bạn tương sinh hay tương khắc?",
+  "Con bạn hợp với bố hay mẹ hơn?",
+  "Năm nay ai trong nhà cần được quan tâm nhiều nhất?",
+  "Ai trong gia đình hợp giữ tiền và lập kế hoạch?",
+  "Mệnh của con gợi ý gì về cách nuôi dạy phù hợp?",
+];
+
+const VALUE_TIERS = [
+  {
+    title: "Miễn phí",
+    badge: "Khám phá nhanh",
+    points: ["Hồ sơ Can Chi - Ngũ Hành", "Điểm tương hợp ngắn", "Tóm tắt điểm mạnh / điểm cần chú ý"],
+  },
+  {
+    title: "Báo cáo chuyên sâu",
+    badge: "Phù hợp để nâng cấp",
+    points: ["Phân tích từng cặp quan hệ", "Dự báo năm cho từng thành viên", "Xuất PDF / in báo cáo"],
+  },
+  {
+    title: "AI cá nhân hóa",
+    badge: "Premium",
+    points: ["Chat theo hồ sơ gia đình", "Gợi ý hành động thực tế", "Lưu và so sánh kết quả theo thời gian"],
+  },
 ];
 
 export default function HomePage() {
@@ -152,6 +179,66 @@ export default function HomePage() {
                 <div className="text-3xl mb-3">{feature.icon}</div>
                 <h3 className="font-bold text-lg mb-2">{feature.title}</h3>
                 <p style={{ color: "var(--muted)" }}>{feature.desc}</p>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Curiosity hooks */}
+      <section className="py-16 px-4" style={{ background: "#fff" }}>
+        <div className="max-w-5xl mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            <span className="gradient-text">Điều khiến người dùng tò mò</span>
+          </h2>
+          <p className="text-center mb-10" style={{ color: "var(--muted)" }}>
+            Bắt đầu bằng những câu hỏi gần gũi về vợ chồng, con cái, tài chính và nhịp sống gia đình.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-4">
+            {CURIOSITY_HOOKS.map((hook) => (
+              <div
+                key={hook}
+                className="p-5 rounded-2xl card-hover"
+                style={{ background: "#f8f4ff", border: "1px solid #e9d5ff" }}
+              >
+                <div className="text-2xl mb-2">✨</div>
+                <div className="font-semibold">{hook}</div>
+              </div>
+            ))}
+          </div>
+        </div>
+      </section>
+
+      {/* Product tiers */}
+      <section className="py-16 px-4" style={{ background: "linear-gradient(135deg, #f8f4ff, #fff7ed)" }}>
+        <div className="max-w-6xl mx-auto">
+          <h2 className="text-3xl font-bold text-center mb-4">
+            <span className="gradient-text">Từ khám phá miễn phí đến báo cáo chuyên sâu</span>
+          </h2>
+          <p className="text-center mb-10" style={{ color: "var(--muted)" }}>
+            Dùng phân tích rule-based để tiết kiệm chi phí, chỉ dùng AI khi cần báo cáo cá nhân hóa sâu hơn.
+          </p>
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+            {VALUE_TIERS.map((tier) => (
+              <div
+                key={tier.title}
+                className="p-6 rounded-2xl"
+                style={{ background: "white", border: "1px solid var(--border)", boxShadow: "0 2px 8px rgba(0,0,0,0.05)" }}
+              >
+                <div className="text-xs inline-block px-3 py-1 rounded-full mb-3"
+                  style={{ background: "#ede9fe", color: "#6d28d9" }}
+                >
+                  {tier.badge}
+                </div>
+                <h3 className="text-xl font-bold mb-4">{tier.title}</h3>
+                <ul className="space-y-2">
+                  {tier.points.map((point) => (
+                    <li key={point} className="flex gap-2 text-sm">
+                      <span className="text-purple-500">✓</span>
+                      <span>{point}</span>
+                    </li>
+                  ))}
+                </ul>
               </div>
             ))}
           </div>

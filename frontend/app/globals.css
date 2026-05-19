@@ -113,3 +113,22 @@ body {
 .tuvi-markdown-compact hr {
   margin: 0.75rem 0;
 }
+
+@media print {
+  body {
+    background: white;
+  }
+
+  nav,
+  button,
+  form {
+    display: none !important;
+  }
+
+  .card-hover,
+  .fade-in {
+    animation: none !important;
+    transform: none !important;
+    box-shadow: none !important;
+  }
+}

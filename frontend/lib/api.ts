@@ -121,6 +121,25 @@ export interface PairCompatibility {
   citations?: Citation[];
 }
 
+export interface PairSummary {
+  member1_name: string;
+  member2_name: string;
+  relationship_type?: string;
+  overall_score: number;
+  compatibility_level: string;
+  headline: string;
+}
+
+export interface ExecutiveSummary {
+  strengths: string[];
+  risks: string[];
+  actions: string[];
+  energy_keeper?: { name: string; role: string } | null;
+  best_pair?: PairSummary | null;
+  attention_pair?: PairSummary | null;
+  positioning_note: string;
+}
+
 export interface FamilyAnalysis {
   family_name: string;
   members_count: number;
@@ -129,6 +148,7 @@ export interface FamilyAnalysis {
   family_dynamics: string;
   energy_distribution: Record<string, number>;
   energy_roles: Array<{ name: string; role: string }>;
+  executive_summary?: ExecutiveSummary;
   ai_interpretation?: string;
   analysis_mode?: 'online' | 'offline';
   sources?: Citation[];
@@ -280,8 +300,8 @@ export const api = {
   deleteMember: (familyId: number, memberId: number): Promise<void> =>
     apiFetch(`/api/families/${familyId}/members/${memberId}`, { method: 'DELETE' }),
 
-  getFamilyAnalysis: (familyId: number): Promise<FamilyAnalysis> =>
-    apiFetch(`/api/families/${familyId}/analysis`),
+  getFamilyAnalysis: (familyId: number, useAi = false): Promise<FamilyAnalysis> =>
+    apiFetch(`/api/families/${familyId}/analysis${useAi ? '?ai=true' : ''}`),
 
   getAnnualForecast: (familyId: number, year: number): Promise<FamilyForecast> =>
     apiFetch(`/api/families/${familyId}/forecast`, {
@@ -299,8 +319,8 @@ export const api = {
   listSavedAnalyses: (familyId: number): Promise<SavedAnalysisSummary[]> =>
     apiFetch(`/api/families/${familyId}/saved-analyses`),
 
-  saveAnalysis: (familyId: number, data: { title?: string; note?: string }): Promise<SavedAnalysisDetail> =>
-    apiFetch(`/api/families/${familyId}/saved-analyses`, {
+  saveAnalysis: (familyId: number, data: { title?: string; note?: string }, useAi = false): Promise<SavedAnalysisDetail> =>
+    apiFetch(`/api/families/${familyId}/saved-analyses${useAi ? '?ai=true' : ''}`, {
       method: 'POST',
       body: JSON.stringify(data),
     }),

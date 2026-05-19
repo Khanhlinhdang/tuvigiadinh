@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useState, useEffect, useCallback } from "react";
 import Link from "next/link";
 import { api, Family } from "@/lib/api";
 
@@ -12,11 +12,7 @@ export default function FamiliesPage() {
   const [formData, setFormData] = useState({ name: "", description: "" });
   const [creating, setCreating] = useState(false);
 
-  useEffect(() => {
-    loadFamilies();
-  }, []);
-
-  async function loadFamilies() {
+  const loadFamilies = useCallback(async () => {
     try {
       const data = await api.getFamilies();
       setFamilies(data);
@@ -25,7 +21,13 @@ export default function FamiliesPage() {
     } finally {
       setLoading(false);
     }
-  }
+  }, []);
+
+  useEffect(() => {
+    // Standard mount data load; the async helper updates state after fetch completes.
+    // eslint-disable-next-line react-hooks/set-state-in-effect
+    loadFamilies();
+  }, [loadFamilies]);
 
   async function createFamily(e: React.FormEvent) {
     e.preventDefault();

@@ -4,7 +4,7 @@ FastAPI Backend
 """
 import os
 from contextlib import asynccontextmanager
-from fastapi import FastAPI, HTTPException, Depends
+from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
 from sqlalchemy import create_engine
 from sqlalchemy.orm import sessionmaker, Session
@@ -587,6 +587,7 @@ def delete_member(
 @app.get("/api/families/{family_id}/analysis")
 async def get_family_analysis(
     family_id: int,
+    ai: bool = Query(False, description="Kích hoạt ChatGPT cho báo cáo chuyên sâu"),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
@@ -621,9 +622,9 @@ async def get_family_analysis(
         "name": family.name,
         "members": members_data,
     }
-    ai_interpretation = await get_ai_interpretation(family_data, analysis)
+    ai_interpretation = await get_ai_interpretation(family_data, analysis, use_openai=ai)
     analysis["ai_interpretation"] = ai_interpretation
-    analysis["analysis_mode"] = "online" if has_openai_key() else "offline"
+    analysis["analysis_mode"] = "online" if ai and has_openai_key() else "offline"
     analysis["sources"] = all_sources()
     analysis["members_snapshot"] = members_data
 
@@ -678,6 +679,7 @@ def list_saved_analyses(
 async def save_family_analysis(
     family_id: int,
     payload: SavedAnalysisCreate,
+    ai: bool = Query(False, description="Kích hoạt ChatGPT cho bản lưu chuyên sâu"),
     db: Session = Depends(get_db),
     user: User | None = Depends(get_current_user),
 ):
@@ -700,8 +702,8 @@ async def save_family_analysis(
     except Exception:
         analysis["annual_forecast"] = None
     family_data = {"name": family.name, "members": members_data}
-    analysis["ai_interpretation"] = await get_ai_interpretation(family_data, analysis)
-    analysis["analysis_mode"] = "online" if has_openai_key() else "offline"
+    analysis["ai_interpretation"] = await get_ai_interpretation(family_data, analysis, use_openai=ai)
+    analysis["analysis_mode"] = "online" if ai and has_openai_key() else "offline"
     analysis["sources"] = all_sources()
     analysis["members_snapshot"] = members_data
     analysis["family_name"] = family.name
