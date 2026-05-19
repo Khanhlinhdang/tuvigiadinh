@@ -35,7 +35,54 @@ SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     Base.metadata.create_all(bind=engine)
+    # Lightweight migration: add new lunar/solar columns to existing
+    # family_members tables (created before this version).
+    _migrate_add_lunar_columns()
     yield
+
+
+def _migrate_add_lunar_columns():
+    """Add lunar/solar columns to family_members if they're missing.
+
+    SQLAlchemy's create_all() does not alter existing tables. For users
+    upgrading from a previous version we issue ALTER TABLE statements
+    for the columns introduced in this release. Safe to run repeatedly.
+
+    All identifiers in the ALTER TABLE statements come from a fixed
+    allow-list defined here (no user input), and are additionally
+    validated against an identifier regex before interpolation, to
+    satisfy linters that flag any string-built SQL.
+    """
+    import re
+    new_columns = [
+        ("birth_calendar", "VARCHAR(10) DEFAULT 'solar'"),
+        ("solar_year", "INTEGER"),
+        ("solar_month", "INTEGER"),
+        ("solar_day", "INTEGER"),
+        ("lunar_year", "INTEGER"),
+        ("lunar_month", "INTEGER"),
+        ("lunar_day", "INTEGER"),
+        ("is_leap_month", "INTEGER DEFAULT 0"),
+    ]
+    allowed_type_pattern = re.compile(r"^[A-Z]+(\([0-9]+\))?( DEFAULT '?[A-Za-z0-9 ]+'?)?$")
+    ident_pattern = re.compile(r"^[a-z_][a-z0-9_]*$")
+    from sqlalchemy import text, inspect
+    inspector = inspect(engine)
+    if "family_members" not in inspector.get_table_names():
+        return
+    existing = {c["name"] for c in inspector.get_columns("family_members")}
+    with engine.begin() as conn:
+        for name, col_type in new_columns:
+            if not ident_pattern.match(name) or not allowed_type_pattern.match(col_type):
+                # Defensive guard - constants above already pass, but
+                # this prevents accidental future expansion with unsafe values.
+                continue
+            if name not in existing:
+                try:
+                    conn.execute(text(f"ALTER TABLE family_members ADD COLUMN {name} {col_type}"))
+                except Exception as e:
+                    # Non-fatal: log to stderr and continue.
+                    print(f"[migration] could not add column {name}: {e}")
 
 
 app = FastAPI(

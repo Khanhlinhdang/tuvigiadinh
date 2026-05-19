@@ -534,8 +534,10 @@ def get_family_annual_forecast(members: List[dict], year: int) -> dict:
 
     for member in members:
         # Prefer lunar year (Can Chi cycle is lunar-based), fall back to
-        # raw birth_year for legacy data.
-        astro_year = member.get("lunar_year") or member.get("birth_year")
+        # raw birth_year for legacy data. Use explicit None check so a
+        # legitimate year of 0 (extremely unlikely) wouldn't be skipped.
+        lunar_year = member.get("lunar_year")
+        astro_year = lunar_year if lunar_year is not None else member.get("birth_year")
         if astro_year:
             forecast = calculate_annual_energy(astro_year, year)
             forecasts.append({

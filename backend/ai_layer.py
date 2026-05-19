@@ -206,14 +206,20 @@ def generate_fallback_interpretation(family_data: dict, analysis_data: dict) -> 
         lines.append(f"### {role} - {name}")
         if m.get("lunar_year"):
             leap = " (nhuận)" if m.get("is_leap_month") else ""
+            ld = m.get("lunar_day")
+            lm = m.get("lunar_month")
+            ld_s = f"{ld:02d}" if isinstance(ld, int) else "??"
+            lm_s = f"{lm:02d}" if isinstance(lm, int) else "??"
             lines.append(
-                f"* Sinh âm lịch: {m.get('lunar_day','?'):>02}/"
-                f"{m.get('lunar_month','?'):>02}/{m.get('lunar_year')}{leap}"
+                f"* Sinh âm lịch: {ld_s}/{lm_s}/{m.get('lunar_year')}{leap}"
             )
         if m.get("solar_year"):
+            sd = m.get("solar_day")
+            sm = m.get("solar_month")
+            sd_s = f"{sd:02d}" if isinstance(sd, int) else "??"
+            sm_s = f"{sm:02d}" if isinstance(sm, int) else "??"
             lines.append(
-                f"* Sinh dương lịch: {m.get('solar_day','?'):>02}/"
-                f"{m.get('solar_month','?'):>02}/{m.get('solar_year')}"
+                f"* Sinh dương lịch: {sd_s}/{sm_s}/{m.get('solar_year')}"
             )
         if can_chi:
             lines.append(f"* Năm sinh: **{can_chi}**")

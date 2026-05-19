@@ -2,7 +2,7 @@
 
 import { useState, useEffect, use } from "react";
 import Link from "next/link";
-import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember } from "@/lib/api";
+import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, PairCompatibility } from "@/lib/api";
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 const HANH_COLORS: Record<string, string> = {
@@ -43,6 +43,8 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     birth_year: 1990,
     birth_month: "",
     birth_day: "",
+    birth_calendar: "solar" as "solar" | "lunar",
+    is_leap_month: false,
   });
 
   useEffect(() => {
@@ -70,12 +72,14 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
         birth_year: memberForm.birth_year,
         birth_month: memberForm.birth_month ? parseInt(memberForm.birth_month) : undefined,
         birth_day: memberForm.birth_day ? parseInt(memberForm.birth_day) : undefined,
+        birth_calendar: memberForm.birth_calendar,
+        is_leap_month: memberForm.is_leap_month,
       });
       setFamily((prev) =>
         prev ? { ...prev, members: [...prev.members, newMember] } : prev
       );
       setShowAddMember(false);
-      setMemberForm({ name: "", role: "con", gender: "nam", birth_year: 1990, birth_month: "", birth_day: "" });
+      setMemberForm({ name: "", role: "con", gender: "nam", birth_year: 1990, birth_month: "", birth_day: "", birth_calendar: "solar", is_leap_month: false });
       setAnalysis(null);
     } catch (e: unknown) {
       setError("Không thể thêm thành viên.");
@@ -379,7 +383,19 @@ function MemberCard({ member, onDelete }: { member: FamilyMember; onDelete: () =
             <div className="font-bold">{member.name}</div>
             <div className="text-xs" style={{ color: "var(--muted)" }}>
               {member.role} · {member.birth_year}
+              {member.birth_calendar === "lunar" ? " (âm)" : ""}
             </div>
+            {(member.solar_year || member.lunar_year) && (
+              <div className="text-[10px] mt-0.5" style={{ color: "var(--muted)" }}>
+                {member.solar_year && member.solar_month && member.solar_day && (
+                  <span>☀️ {String(member.solar_day).padStart(2, "0")}/{String(member.solar_month).padStart(2, "0")}/{member.solar_year}</span>
+                )}
+                {member.solar_year && member.lunar_year && " · "}
+                {member.lunar_year && member.lunar_month && member.lunar_day && (
+                  <span>🌙 {String(member.lunar_day).padStart(2, "0")}/{String(member.lunar_month).padStart(2, "0")}/{member.lunar_year}{member.is_leap_month ? " (nhuận)" : ""}</span>
+                )}
+              </div>
+            )}
           </div>
         </div>
         <button
@@ -433,6 +449,8 @@ interface AddMemberModalProps {
     birth_year: number;
     birth_month: string;
     birth_day: string;
+    birth_calendar: "solar" | "lunar";
+    is_leap_month: boolean;
   };
   onChange: (form: AddMemberModalProps["form"]) => void;
   onSubmit: (e: React.FormEvent) => void;
@@ -493,7 +511,35 @@ function AddMemberModal({ form, onChange, onSubmit, onClose }: AddMemberModalPro
           </div>
 
           <div>
-            <label className="block text-sm font-medium mb-1">Năm sinh *</label>
+            <label className="block text-sm font-medium mb-1">Loại lịch ngày sinh *</label>
+            <div className="flex gap-2">
+              {(["solar", "lunar"] as const).map((cal) => (
+                <button
+                  key={cal}
+                  type="button"
+                  onClick={() => onChange({ ...form, birth_calendar: cal })}
+                  className="flex-1 py-2 px-3 rounded-xl text-sm font-medium"
+                  style={{
+                    background: form.birth_calendar === cal
+                      ? "linear-gradient(135deg, #8b5cf6, #ec4899)"
+                      : "#f3f4f6",
+                    color: form.birth_calendar === cal ? "white" : "var(--foreground)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  {cal === "solar" ? "☀️ Dương lịch" : "🌙 Âm lịch"}
+                </button>
+              ))}
+            </div>
+            <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+              Nhập ngày sinh theo {form.birth_calendar === "solar" ? "Dương lịch (lịch thường dùng)" : "Âm lịch (lịch ta)"}. Hệ thống tự động chuyển đổi và lưu cả hai.
+            </p>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">
+              Năm sinh ({form.birth_calendar === "lunar" ? "âm" : "dương"}) *
+            </label>
             <input
               type="number"
               value={form.birth_year}
@@ -534,6 +580,17 @@ function AddMemberModal({ form, onChange, onSubmit, onClose }: AddMemberModalPro
               />
             </div>
           </div>
+
+          {form.birth_calendar === "lunar" && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.is_leap_month}
+                onChange={(e) => onChange({ ...form, is_leap_month: e.target.checked })}
+              />
+              <span>Tháng nhuận (chỉ tích khi sinh đúng vào tháng nhuận âm lịch)</span>
+            </label>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button
@@ -677,7 +734,19 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
           style={{ background: "white", border: "1px solid var(--border)" }}
         >
           <h3 className="font-bold text-lg mb-4 flex items-center gap-2">
-            <span>🤖</span> Phân Tích AI
+            <span>{analysis.analysis_mode === "offline" ? "📖" : "🤖"}</span>
+            {analysis.analysis_mode === "offline" ? "Phân Tích Chi Tiết (Offline)" : "Phân Tích AI"}
+            {analysis.analysis_mode && (
+              <span
+                className="ml-auto text-xs px-2 py-0.5 rounded-full"
+                style={{
+                  background: analysis.analysis_mode === "online" ? "#dcfce7" : "#fef3c7",
+                  color: analysis.analysis_mode === "online" ? "#166534" : "#92400e",
+                }}
+              >
+                {analysis.analysis_mode === "online" ? "Online (ChatGPT)" : "Offline (không cần API key)"}
+              </span>
+            )}
           </h3>
           <div
             className="text-sm leading-relaxed whitespace-pre-wrap"
@@ -685,6 +754,32 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
           >
             {analysis.ai_interpretation}
           </div>
+        </div>
+      )}
+
+      {/* Bibliography - full source list */}
+      {analysis.sources && analysis.sources.length > 0 && (
+        <div
+          className="p-6 rounded-2xl"
+          style={{ background: "#fafaf9", border: "1px solid var(--border)" }}
+        >
+          <h3 className="font-bold text-lg mb-3 flex items-center gap-2">
+            <span>📚</span> Nguồn Dữ Liệu & Tài Liệu Tham Khảo
+          </h3>
+          <p className="text-xs mb-3" style={{ color: "var(--muted)" }}>
+            Phân tích dựa trên các tài liệu kinh điển và học thuật về Tử Vi - Ngũ Hành - Âm Dương:
+          </p>
+          <ul className="space-y-2 text-sm">
+            {analysis.sources.map((s, i) => (
+              <li key={i} className="flex gap-2">
+                <span className="text-purple-500">•</span>
+                <div>
+                  <span className="font-semibold">{s.title}</span> — {s.author} ({s.year}).{" "}
+                  <span style={{ color: "var(--muted)" }}>{s.note}</span>
+                </div>
+              </li>
+            ))}
+          </ul>
         </div>
       )}
 
@@ -701,35 +796,22 @@ function AnalysisView({ analysis, onRefresh }: { analysis: FamilyAnalysis; onRef
   );
 }
 
-function PairDetail({ pair }: { pair: ReturnType<typeof Object.values> extends Array<infer T> ? T : never }) {
-  const pairData = pair as {
-    member1_name: string;
-    member2_name: string;
-    member1_role: string;
-    member2_role: string;
-    member1_can_chi: string;
-    member2_can_chi: string;
-    overall_score: number;
-    compatibility_level: string;
-    summary: string;
-    recommendations: string[];
-    radar_scores: {
-      emotional: number;
-      communication: number;
-      financial: number;
-      lifestyle: number;
-      stability: number;
-    };
-    can_compatibility: { relation: string; description: string };
-    chi_compatibility: { relations: string[]; description: string };
-    hanh_compatibility: { relation: string; description: string };
-  };
+function PairDetail({ pair }: { pair: PairCompatibility }) {
+  const pairData = pair;
 
   const scoreColor = (score: number) => {
     if (score >= 65) return "#22c55e";
     if (score >= 45) return "#f59e0b";
     if (score >= 25) return "#8b5cf6";
     return "#ef4444";
+  };
+
+  const sinhKhacColor = (type?: string) => {
+    if (!type) return "#6b7280";
+    if (type.includes("sinh")) return "#22c55e";
+    if (type.includes("khac")) return "#ef4444";
+    if (type.includes("ty")) return "#8b5cf6";
+    return "#6b7280";
   };
 
   const radarData = [
@@ -756,6 +838,14 @@ function PairDetail({ pair }: { pair: ReturnType<typeof Object.values> extends A
           <div className="text-sm mt-1" style={{ color: "var(--muted)" }}>
             {pairData.member1_role} ({pairData.member1_can_chi}) ↔ {pairData.member2_role} ({pairData.member2_can_chi})
           </div>
+          {pairData.relationship_type && (
+            <div
+              className="inline-block mt-2 px-2 py-0.5 rounded-md text-xs font-semibold"
+              style={{ background: "#ede9fe", color: "#6d28d9" }}
+            >
+              {pairData.relationship_type}
+            </div>
+          )}
         </div>
         <div className="text-right">
           <div className="text-3xl font-bold" style={{ color: scoreColor(pairData.overall_score) }}>
@@ -764,6 +854,28 @@ function PairDetail({ pair }: { pair: ReturnType<typeof Object.values> extends A
           <div className="text-sm font-medium">{pairData.compatibility_level}</div>
         </div>
       </div>
+
+      {/* Tương Sinh / Tương Khắc highlight */}
+      {pairData.sinh_khac && (
+        <div
+          className="mb-5 p-4 rounded-xl"
+          style={{
+            background: `${sinhKhacColor(pairData.sinh_khac.type)}10`,
+            border: `1px solid ${sinhKhacColor(pairData.sinh_khac.type)}40`,
+          }}
+        >
+          <div
+            className="text-xs uppercase font-semibold mb-1"
+            style={{ color: sinhKhacColor(pairData.sinh_khac.type) }}
+          >
+            Tương Sinh / Tương Khắc bản mệnh
+          </div>
+          <div className="font-bold text-base mb-1">{pairData.sinh_khac.headline}</div>
+          <div className="text-sm" style={{ color: "var(--foreground)" }}>
+            {pairData.sinh_khac.detail}
+          </div>
+        </div>
+      )}
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* Radar Chart */}
@@ -819,12 +931,44 @@ function PairDetail({ pair }: { pair: ReturnType<typeof Object.values> extends A
         </div>
       </div>
 
-      {/* Recommendations */}
+      {/* Relationship explanation (from knowledge base) */}
+      {pairData.relationship_explanation && (
+        <div
+          className="mt-5 p-4 rounded-xl text-sm"
+          style={{ background: "#fef3c7", border: "1px solid #fde68a" }}
+        >
+          <div className="text-xs uppercase font-semibold mb-1" style={{ color: "#b45309" }}>
+            📖 Tri thức truyền thống
+          </div>
+          <div>{pairData.relationship_explanation}</div>
+        </div>
+      )}
+
+      {/* Relationship-specific advice */}
+      {pairData.relationship_advice && pairData.relationship_advice.length > 0 && (
+        <div className="mt-5">
+          <h4 className="font-semibold mb-3">🎯 Khuyến Nghị Theo Loại Quan Hệ</h4>
+          <div className="space-y-2">
+            {pairData.relationship_advice.map((rec, i) => (
+              <div
+                key={i}
+                className="flex items-start gap-2 p-3 rounded-xl text-sm"
+                style={{ background: "#ecfeff", border: "1px solid #a5f3fc" }}
+              >
+                <span className="mt-0.5" style={{ color: "#0891b2" }}>★</span>
+                <span>{rec}</span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {/* General recommendations */}
       {pairData.recommendations.length > 0 && (
         <div className="mt-5">
-          <h4 className="font-semibold mb-3">💡 Khuyến Nghị</h4>
+          <h4 className="font-semibold mb-3">💡 Khuyến Nghị Chung</h4>
           <div className="space-y-2">
-            {pairData.recommendations.map((rec: string, i: number) => (
+            {pairData.recommendations.map((rec, i) => (
               <div
                 key={i}
                 className="flex items-start gap-2 p-3 rounded-xl text-sm"
@@ -835,6 +979,22 @@ function PairDetail({ pair }: { pair: ReturnType<typeof Object.values> extends A
               </div>
             ))}
           </div>
+        </div>
+      )}
+
+      {/* Citations for this pair */}
+      {pairData.citations && pairData.citations.length > 0 && (
+        <div className="mt-5">
+          <h4 className="font-semibold text-sm mb-2" style={{ color: "var(--muted)" }}>
+            📚 Trích dẫn cho phân tích này
+          </h4>
+          <ul className="text-xs space-y-1" style={{ color: "var(--muted)" }}>
+            {pairData.citations.map((c, i) => (
+              <li key={i}>
+                <span className="font-semibold">{c.title}</span> — {c.author} ({c.year})
+              </li>
+            ))}
+          </ul>
         </div>
       )}
     </div>
