@@ -267,7 +267,9 @@ def _annotate_members(members_data: list[dict]) -> list[dict]:
     children = [m for m in members_data if (m.get("role") or "") == "con"]
     children_sorted = sorted(children, key=_sort_key_for_birth)
     total = len(children_sorted)
-    order_map: dict[int, tuple[int, str]] = {}
+    # Use stable member ids as keys. Fallback to a tuple key when an id is
+    # missing (e.g. preview payloads without DB persistence).
+    order_map: dict[object, tuple[int, str]] = {}
     for idx, ch in enumerate(children_sorted):
         order = idx + 1
         if total == 1:
@@ -278,13 +280,19 @@ def _annotate_members(members_data: list[dict]) -> list[dict]:
             label = "con út"
         else:
             label = f"con thứ {order}"
-        order_map[id(ch)] = (order, label)
+        key = ch.get("id") if ch.get("id") is not None else (
+            "k", ch.get("name"), ch.get("birth_year"), ch.get("birth_month"), ch.get("birth_day")
+        )
+        order_map[key] = (order, label)
 
     for m in members_data:
         by = m.get("birth_year")
         m["age"] = (current_year - by) if isinstance(by, int) and by > 0 else None
-        if id(m) in order_map:
-            order, label = order_map[id(m)]
+        m_key = m.get("id") if m.get("id") is not None else (
+            "k", m.get("name"), m.get("birth_year"), m.get("birth_month"), m.get("birth_day")
+        )
+        if m_key in order_map:
+            order, label = order_map[m_key]
             m["birth_order"] = order
             m["birth_order_label"] = label
             m["siblings_count"] = total

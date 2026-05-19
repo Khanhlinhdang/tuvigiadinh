@@ -1791,9 +1791,9 @@ function EditMemberModal({
             if (occupation !== (member.occupation || "")) patch.occupation = occupation;
             if (birthYear !== member.birth_year) patch.birth_year = birthYear;
             const newMonth = birthMonth ? parseInt(birthMonth) : undefined;
-            if (newMonth !== member.birth_month) patch.birth_month = newMonth as number;
+            if (newMonth !== member.birth_month && newMonth !== undefined) patch.birth_month = newMonth;
             const newDay = birthDay ? parseInt(birthDay) : undefined;
-            if (newDay !== member.birth_day) patch.birth_day = newDay as number;
+            if (newDay !== member.birth_day && newDay !== undefined) patch.birth_day = newDay;
             if (birthCalendar !== (member.birth_calendar || "solar")) patch.birth_calendar = birthCalendar;
             if (isLeapMonth !== !!member.is_leap_month) patch.is_leap_month = isLeapMonth;
             if (Object.keys(patch).length === 0) {
