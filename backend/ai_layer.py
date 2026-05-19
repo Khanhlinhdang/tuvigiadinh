@@ -50,17 +50,45 @@ async def get_ai_interpretation(family_data: dict, analysis_data: dict) -> str:
             parts.append(f"năm sinh {m.get('birth_year', '?')}")
         return ", ".join(parts)
 
+    def _age_band(age: int | None) -> str:
+        if age is None:
+            return ""
+        if age <= 6:
+            return "trẻ mầm non"
+        if age <= 12:
+            return "tuổi tiểu học"
+        if age <= 17:
+            return "thiếu niên"
+        if age <= 25:
+            return "thanh niên"
+        if age <= 40:
+            return "trung niên trẻ"
+        if age <= 55:
+            return "trung niên"
+        if age <= 70:
+            return "tiền cao tuổi"
+        return "cao tuổi"
+
     # Build structured prompt with rich member detail
     structured_data = {
         "gia_dinh": family_data["name"],
         "nam_xem": {"nam": current_year, "can_chi": year_can_chi},
+        "tong_so_thanh_vien": len(family_data["members"]),
         "thanh_vien": [
             {
                 "ten": m["name"],
                 "vai_tro": m["role"],
+                "thu_tu_sinh": m.get("birth_order_label") or "",
+                "thu_tu_sinh_so": m.get("birth_order"),
                 "gioi_tinh": m.get("gender", ""),
+                "tuoi": m.get("age"),
+                "do_tuoi": _age_band(m.get("age")),
+                "nghe_nghiep": m.get("occupation") or "(chưa cập nhật)",
                 "ngay_sinh": _fmt_date(m),
+                "gio_sinh": m.get("birth_hour") or "",
                 "can_chi": f"{m.get('thien_can','')} {m.get('dia_chi','')}".strip(),
+                "thien_can": m.get("thien_can", ""),
+                "dia_chi": m.get("dia_chi", ""),
                 "ngu_hanh_can": m.get("ngu_hanh", ""),
                 "nap_am": m.get("nap_am", ""),
                 "vai_tro_nang_luong": m.get("energy_role", ""),
@@ -76,7 +104,9 @@ async def get_ai_interpretation(family_data: dict, analysis_data: dict) -> str:
                 "thien_can": p["can_compatibility"].get("description") or p["can_compatibility"].get("relation"),
                 "dia_chi": p["chi_compatibility"].get("description") or p["chi_compatibility"].get("primary_relation"),
                 "ngu_hanh": p["hanh_compatibility"].get("description") or p["hanh_compatibility"].get("relation"),
-                "sinh_khac": (p.get("sinh_khac") or {}).get("headline", ""),
+                "sinh_khac_type": (p.get("sinh_khac") or {}).get("type", ""),
+                "sinh_khac_headline": (p.get("sinh_khac") or {}).get("headline", ""),
+                "sinh_khac_detail": (p.get("sinh_khac") or {}).get("detail", ""),
             }
             for p in analysis_data.get("pairs_analysis", [])
         ],
@@ -126,14 +156,38 @@ async def get_ai_interpretation(family_data: dict, analysis_data: dict) -> str:
         "- Văn phong xây dựng, tôn trọng, hữu ích."
     )
 
-    user_prompt = f"""Hãy phân tích TOÀN DIỆN tử vi - ngũ hành gia đình dưới đây
-dưới góc nhìn tử vi truyền thống, ngũ hành, thiên can - địa chi và quan
-niệm dân gian Á Đông. Năm cần phân tích là **{current_year} ({year_can_chi})**.
+    user_prompt = f"""Hãy phân tích **CHIỀU SÂU VÀ CÁ NHÂN HOÁ** tử vi - ngũ hành
+gia đình dưới đây dưới góc nhìn tử vi truyền thống, ngũ hành, thiên can -
+địa chi, nạp âm và quan niệm dân gian Á Đông. Năm cần phân tích là
+**{current_year} ({year_can_chi})**.
 
-Dữ liệu gia đình (JSON):
+Dữ liệu gia đình (JSON - PHẢI SỬ DỤNG ĐẦY ĐỦ MỌI TRƯỜNG):
 ```json
 {json.dumps(structured_data, ensure_ascii=False, indent=2)}
 ```
+
+⚠️ Yêu cầu bắt buộc về độ sâu (KHÔNG được viết chung chung):
+1. **Mọi nhận định phải gắn dữ liệu cụ thể** của thành viên: tên, Can-Chi,
+   ngũ hành, nạp âm, tuổi, giới tính, vai trò, **nghề nghiệp** và (với
+   con cái) thứ tự sinh (con đầu / con thứ / con út).
+2. **Tương sinh / tương khắc PHẢI giải thích CƠ CHẾ**:
+   - Nói rõ HÀNH NÀO sinh HÀNH NÀO (ví dụ: "Thủy sinh Mộc vì nước nuôi cây")
+   - Nói rõ HÀNH NÀO khắc HÀNH NÀO và LÝ DO ("Kim khắc Mộc vì rìu chặt cây")
+   - Áp dụng vào CẶP THÀNH VIÊN CỤ THỂ: ai là bên 'sinh', ai là bên 'được
+     sinh' / 'bị khắc', và biểu hiện đời thực của điều đó trong tương tác
+     hàng ngày của cặp đó.
+3. **Phân tích cá nhân từng thành viên** phải bao gồm đủ các trục:
+   - Tính cách cốt lõi (theo Can-Chi + nạp âm + ngũ hành)
+   - **Nghề nghiệp**: đánh giá nghề hiện tại có hợp với bản mệnh không
+     (sinh nghề hay khắc nghề), gợi ý hướng phát triển
+   - Mối quan hệ với người xung quanh (đồng nghiệp, bạn bè, hàng xóm)
+   - **Đánh giá theo độ tuổi**: nhi đồng / thiếu niên / thanh niên / trung
+     niên / cao tuổi - mỗi giai đoạn có trọng tâm khác nhau
+4. **Phần con cái phải nói rõ con đầu / con thứ / con út** (đã có sẵn trong
+   trường `thu_tu_sinh`) và đặc điểm tâm lý theo thứ tự sinh kết hợp với
+   ngũ hành của con đó.
+5. Mỗi mục con phải có ít nhất 5-7 câu, viết riêng cho từng thành viên,
+   thể hiện rõ sự khác biệt giữa họ.
 
 Yêu cầu cấu trúc bài viết (BẮT BUỘC dùng Markdown, đúng các heading bên dưới,
 nhưng TÙY BIẾN nội dung theo dữ liệu thật của gia đình):
@@ -143,49 +197,58 @@ nhưng TÙY BIẾN nội dung theo dữ liệu thật của gia đình):
   điểm đặc biệt (ví dụ: con đóng vai trò cân bằng, bố mẹ xung, v.v.).
 - Một câu nhắc tính tham khảo.
 
-# 1. Tổng quan lá số ngũ hành gia đình
+# 1. Hồ sơ chi tiết từng thành viên
 Với MỖI thành viên (lặp lại theo vai trò - tên):
-## {{Vai trò}} - {{Tên}}
-- Sinh: (ngày âm/dương)
-- Tuổi: Can Chi
-- Mệnh nạp âm
-- Tính khí thường (3-6 bullet)
-- Nhược điểm (2-4 bullet)
+## {{Vai trò}}{{ (con đầu/thứ/út nếu là con) }} - {{Tên}} ({{tuổi}} tuổi, {{nghề}})
+- Sinh: (ngày âm/dương + giờ nếu có)
+- Can-Chi - Mệnh nạp âm - Ngũ hành
+- ### Tính cách & tâm lý (5-7 bullet, cụ thể, có chiều sâu)
+- ### Nghề nghiệp & sự nghiệp
+  - Đánh giá nghề hiện tại "{{nghề nghiệp}}" có hợp ngũ hành bản mệnh không
+    (sinh hay khắc, lý do cụ thể)
+  - 2-3 hướng phát triển/chuyên môn phù hợp
+- ### Quan hệ với người xung quanh (đồng nghiệp/bạn bè/hàng xóm)
+- ### Lời khuyên theo độ tuổi ({{do_tuoi}}): trọng tâm cần lưu ý
 
-# 2. Tổng vận gia đình năm {current_year} ({year_can_chi})
-- Thiên can - Địa chi - Nạp âm của năm
-- Bức tranh tổng thể, chu kỳ gia đình đang bước vào.
+# 2. Tương sinh - Tương khắc trong gia đình (PHẦN CHÍNH - rất chi tiết)
+Với MỖI cặp trong `phan_tich_tuong_hop`:
+### {{Tên A}} ({{hành A}}) ↔ {{Tên B}} ({{hành B}}) - {{loại quan hệ}}
+- **Cơ chế**: giải thích nguyên lý ngũ hành liên quan, ví dụ "{{hành A}}
+  sinh {{hành B}} vì..." hoặc "{{hành A}} khắc {{hành B}} vì..." (PHẢI
+  có lý do, không chỉ ghi nhãn)
+- **Biểu hiện hàng ngày**: 3-4 ví dụ tình huống thực tế trong gia đình
+  giữa cặp này, dựa trên vai trò + tuổi của họ
+- **Cách điều hòa**: 3-4 gợi ý hành động cụ thể, hợp vai trò
 
-# 3+. Phân tích chi tiết từng thành viên năm {current_year}
-Với MỖI thành viên (chồng, vợ, từng con, hoặc các vai trò khác đang có),
-tạo một section riêng (## {{Tên}} - {{Vai trò}}), gồm các tiểu mục:
-- ### Vận công việc - sự nghiệp
-- ### Tài chính
-- ### Tâm sinh lý
-- ### Tình cảm / quan hệ
-- ### Sức khỏe (lưu ý cơ quan cụ thể theo ngũ hành)
-Lưu ý:
-- Với trẻ nhỏ, thay "sự nghiệp" bằng "phát triển - giáo dục".
-- Tùy giới tính (nam/nữ) và vai trò mà chọn từ ngữ cho phù hợp.
+# 3. Phân tích con cái (nếu gia đình có con)
+- Tổng quan số con, ai con đầu, ai con thứ, ai con út (lấy từ `thu_tu_sinh`)
+- Với từng con: đặc điểm tâm lý theo thứ tự sinh + ngũ hành, vai trò
+  trong gia đình, cách bố mẹ nên đối xử khác biệt cho phù hợp
 
-# Quan hệ vợ chồng năm {current_year} (chỉ khi có cặp vợ - chồng)
+# 4. Quan hệ vợ chồng năm {current_year} (chỉ khi có cặp vợ - chồng)
 - Đánh giá theo Thiên Can, Địa Chi, Ngũ hành.
 - Biểu hiện dễ gặp, điểm tích cực, lời khuyên cụ thể.
 
-# Quan hệ cha/mẹ - con (nếu có con)
-- Phân tích Sinh-Khắc giữa cha-con, mẹ-con từng cặp.
+# 5. Tổng vận gia đình năm {current_year} ({year_can_chi})
+- Thiên can - Địa chi - Nạp âm của năm
+- Bức tranh tổng thể, chu kỳ gia đình đang bước vào.
 
-# Quan hệ anh chị em (nếu có ≥ 2 con)
-- Phân tích Sinh-Khắc, Lục hợp/Tam hợp, đặc điểm song sinh nếu cùng năm.
+# 6. Vận khí cá nhân từng thành viên năm {current_year}
+Với MỖI thành viên:
+## {{Tên}} - {{Vai trò}}
+- ### Sự nghiệp - công việc (với trẻ: phát triển - học tập)
+- ### Tài chính
+- ### Tâm lý - tinh thần
+- ### Tình cảm / quan hệ
+- ### Sức khỏe (cơ quan cụ thể theo ngũ hành)
 
-# Tài chính gia đình năm {current_year}
-# Nhà cửa - môi trường sống năm {current_year}
-# Tổng kết vận khí từng thành viên
-Trình bày dưới dạng BẢNG Markdown:
+# 7. Tài chính gia đình năm {current_year}
+# 8. Nhà cửa - môi trường sống năm {current_year}
 
-| Thành viên | Điểm nổi bật {current_year} |
-| --- | --- |
-| ... | ... |
+# 9. Bảng tổng kết
+| Thành viên | Vai trò | Tuổi | Nghề | Mệnh | Vận {current_year} |
+| --- | --- | --- | --- | --- | --- |
+| ... | ... | ... | ... | ... | ... |
 
 # Kết luận toàn diện
 - Điểm mạnh lớn nhất
@@ -195,9 +258,10 @@ Trình bày dưới dạng BẢNG Markdown:
 Cuối bài: ghi một dòng in nghiêng nhắc tính tham khảo văn hoá.
 
 QUAN TRỌNG: Văn phong PHẢI thể hiện rõ sự khác biệt giữa các thành viên
-dựa trên Can-Chi, Ngũ hành, giới tính và vai trò của họ - không viết
-chung chung. Mỗi phần phải có ít nhất 4-6 câu, chi tiết, cụ thể, có
-chiều sâu, kèm gợi ý hành động."""
+dựa trên Can-Chi, Ngũ hành, giới tính, **tuổi và nghề nghiệp** của họ - 
+không viết chung chung. Mỗi phần phải có ít nhất 5-7 câu, chi tiết, cụ thể,
+có chiều sâu, kèm gợi ý hành động. Tất cả tương sinh/tương khắc phải có
+LÝ DO chứ không chỉ ghi nhãn."""
 
     try:
         async with httpx.AsyncClient(timeout=90.0) as client:
@@ -214,7 +278,7 @@ chiều sâu, kèm gợi ý hành động."""
                         {"role": "user", "content": user_prompt}
                     ],
                     "temperature": 0.7,
-                    "max_tokens": 3500
+                    "max_tokens": 5500
                 }
             )
             data = response.json()
@@ -347,7 +411,7 @@ def generate_fallback_interpretation(family_data: dict, analysis_data: dict) -> 
     lines.append("")
 
     # 1. Thông tin cơ bản
-    lines.append("## 1. Thông tin cơ bản các thành viên")
+    lines.append("## 1. Hồ sơ chi tiết các thành viên")
     lines.append("")
     for m in members:
         role = (m.get("role") or "").capitalize()
@@ -355,7 +419,18 @@ def generate_fallback_interpretation(family_data: dict, analysis_data: dict) -> 
         can_chi = f"{m.get('thien_can','')} {m.get('dia_chi','')}".strip()
         hanh = m.get("ngu_hanh", "")
         nap_am = m.get("nap_am", "")
-        lines.append(f"### {role} - {name}")
+        age = m.get("age")
+        occupation = m.get("occupation") or "(chưa cập nhật nghề nghiệp)"
+        order_label = m.get("birth_order_label") or ""
+        header_extra = []
+        if age is not None:
+            header_extra.append(f"{age} tuổi")
+        if order_label:
+            header_extra.append(order_label)
+        extra_str = (" - " + ", ".join(header_extra)) if header_extra else ""
+        lines.append(f"### {role} - {name}{extra_str}")
+        if occupation:
+            lines.append(f"* Nghề nghiệp: **{occupation}**")
         if m.get("lunar_year"):
             leap = " (nhuận)" if m.get("is_leap_month") else ""
             ld = m.get("lunar_day")
@@ -379,6 +454,35 @@ def generate_fallback_interpretation(family_data: dict, analysis_data: dict) -> 
             lines.append(f"* Ngũ hành Thiên Can: **{hanh}**")
         if nap_am:
             lines.append(f"* Nạp âm (bản mệnh sâu): **{nap_am}**")
+
+        # Career fit assessment based on ngũ hành and occupation
+        if occupation and hanh and occupation != "(chưa cập nhật nghề nghiệp)":
+            career_lines = _career_fit_lines(hanh, occupation, m.get("gender", ""))
+            if career_lines:
+                lines.append("")
+                lines.append("**Nghề nghiệp & sự nghiệp:**")
+                for cl in career_lines:
+                    lines.append(f"- {cl}")
+
+        # Age-based guidance
+        age_lines = _age_based_lines(age, hanh, m.get("role", ""), m.get("gender", ""))
+        if age_lines:
+            lines.append("")
+            lines.append(f"**Lời khuyên theo độ tuổi ({age} tuổi):**" if age is not None else "**Lời khuyên theo độ tuổi:**")
+            for al in age_lines:
+                lines.append(f"- {al}")
+
+        # Birth-order insight (for children)
+        if order_label:
+            order_lines = _birth_order_lines(
+                m.get("birth_order"), m.get("siblings_count", 0), hanh, m.get("gender", "")
+            )
+            if order_lines:
+                lines.append("")
+                lines.append(f"**Đặc điểm theo thứ tự sinh ({order_label}):**")
+                for ol in order_lines:
+                    lines.append(f"- {ol}")
+
         lines.append("")
 
     can_chi_year = _year_can_chi(current_year)
@@ -606,6 +710,165 @@ def _year_can_chi(year: int) -> str:
         return f"{THIEN_CAN[(year - 4) % 10]} {DIA_CHI[(year - 4) % 12]}"
     except Exception:
         return str(year)
+
+
+# Five-element career mapping
+_HANH_CAREER_FIT = {
+    "Kim": {
+        "sinh_keywords": ["tài chính", "ngân hàng", "kim hoàn", "luật", "quân", "cảnh sát", "kỹ sư cơ khí", "kim loại"],
+        "khac_keywords": ["lâm nghiệp", "đồ gỗ", "trồng cây", "may mặc"],
+        "sinh_by": "Thổ",
+        "supports": "Thủy",
+        "suggest": "tài chính, kế toán, luật, quản trị, kỹ thuật cơ khí, kim hoàn",
+    },
+    "Mộc": {
+        "sinh_keywords": ["giáo dục", "giáo viên", "giảng viên", "đào tạo", "y tế", "y dược", "y khoa", "bác sĩ", "y tá", "điều dưỡng", "nông", "lâm", "thiết kế", "thời trang", "văn hoá", "văn hóa", "xuất bản", "nhà văn", "nghệ thuật"],
+        "khac_keywords": ["chế tạo kim loại", "khai thác mỏ", "vũ khí"],
+        "sinh_by": "Thủy",
+        "supports": "Hỏa",
+        "suggest": "giáo dục, y tế, nông lâm, thiết kế, sáng tạo, văn hoá nghệ thuật",
+    },
+    "Thủy": {
+        "sinh_keywords": ["giao thông", "vận tải", "du lịch", "truyền thông", "marketing", "nước", "thủy sản", "logistic"],
+        "khac_keywords": ["lửa", "điện", "luyện kim"],
+        "sinh_by": "Kim",
+        "supports": "Mộc",
+        "suggest": "giao thông - vận tải, du lịch, truyền thông, marketing, thủy sản",
+    },
+    "Hỏa": {
+        "sinh_keywords": ["điện", "năng lượng", "ánh sáng", "ẩm thực", "nhà hàng", "marketing", "biểu diễn", "công nghệ"],
+        "khac_keywords": ["thủy sản", "đồ uống"],
+        "sinh_by": "Mộc",
+        "supports": "Thổ",
+        "suggest": "công nghệ, marketing, biểu diễn, năng lượng, ẩm thực",
+    },
+    "Thổ": {
+        "sinh_keywords": ["bất động sản", "xây dựng", "địa chất", "gốm", "nông nghiệp", "vật liệu", "kho vận"],
+        "khac_keywords": ["hàng hải", "thủy sản"],
+        "sinh_by": "Hỏa",
+        "supports": "Kim",
+        "suggest": "bất động sản, xây dựng, vật liệu, nông nghiệp, kho vận",
+    },
+}
+
+
+def _career_fit_lines(hanh: str, occupation: str, gender: str) -> list[str]:
+    info = _HANH_CAREER_FIT.get(hanh)
+    if not info:
+        return []
+    occ_low = occupation.lower()
+    matched_sinh = any(k in occ_low for k in info["sinh_keywords"])
+    matched_khac = any(k in occ_low for k in info["khac_keywords"])
+    lines: list[str] = []
+    if matched_sinh:
+        lines.append(
+            f"Nghề **{occupation}** thuận với bản mệnh **{hanh}** - hành nghề "
+            f"khai thông năng lượng tự nhiên của người mang mệnh này, dễ phát "
+            "huy thế mạnh và tạo thành tựu."
+        )
+    elif matched_khac:
+        lines.append(
+            f"Nghề **{occupation}** thuộc lĩnh vực có yếu tố khắc với mệnh "
+            f"**{hanh}** - không có nghĩa là không làm được, nhưng cần ý thức "
+            "giữ sức, học cách 'mượn lực' bằng môi trường và đồng đội phù hợp."
+        )
+    else:
+        lines.append(
+            f"Nghề **{occupation}** ở thế trung tính với mệnh **{hanh}** - "
+            "thành công phụ thuộc nhiều vào nỗ lực cá nhân và môi trường làm việc."
+        )
+    lines.append(
+        f"Hành **{hanh}** được sinh bởi **{info['sinh_by']}** và là nguồn "
+        f"hỗ trợ cho **{info['supports']}** - nên hợp tác với đồng nghiệp/"
+        f"đối tác có mệnh {info['sinh_by']} hoặc {info['supports']} để mọi việc thông suốt."
+    )
+    lines.append(
+        f"Hướng phát triển/chuyển ngành nên tham khảo: {info['suggest']}."
+    )
+    return lines
+
+
+def _age_based_lines(age: int | None, hanh: str, role: str, gender: str) -> list[str]:
+    if age is None:
+        return []
+    if age <= 6:
+        return [
+            "Giai đoạn nền tảng - tập trung vào dinh dưỡng, giấc ngủ và an toàn cảm xúc.",
+            "Hạn chế áp đặt kỳ vọng học thuật, ưu tiên chơi - vận động - khám phá.",
+        ]
+    if age <= 12:
+        return [
+            "Tuổi tiểu học: hình thành thói quen học tập và kỷ luật mềm.",
+            "Tận dụng thế mạnh ngũ hành để chọn hoạt động ngoại khoá phù hợp.",
+            "Mối quan hệ với bạn bè cùng lớp ảnh hưởng lớn đến tự tin - bố mẹ nên đồng hành sát sao.",
+        ]
+    if age <= 17:
+        return [
+            "Thiếu niên: giai đoạn định hình bản sắc, dễ va chạm với quyền uy của cha mẹ.",
+            "Cần được lắng nghe và tôn trọng quyết định nhỏ để học trách nhiệm.",
+            "Định hướng nghề nghiệp sơ bộ theo ngũ hành bản mệnh giúp giảm hoang mang.",
+        ]
+    if age <= 25:
+        return [
+            "Thanh niên: thời điểm gieo hạt cho sự nghiệp - chọn ngành/nghề kỹ lưỡng theo bản mệnh.",
+            "Mối quan hệ xã hội mở rộng nhanh - cần phân loại 'bạn đồng hành dài hạn' vs 'kết nối tạm thời'.",
+            "Tài chính cá nhân: bắt đầu kỷ luật tiết kiệm 10-20% thu nhập.",
+        ]
+    if age <= 40:
+        return [
+            "Trung niên trẻ: đỉnh cao năng lượng - nên đầu tư cho năng lực chuyên sâu và mạng lưới.",
+            "Cân bằng công việc - gia đình là chìa khoá tránh kiệt sức.",
+            "Quan tâm sức khoẻ cơ quan đặc trưng của hành bản mệnh để phòng bệnh sớm.",
+        ]
+    if age <= 55:
+        return [
+            "Trung niên: chuyển từ 'làm nhiều' sang 'làm đúng' - chọn lọc dự án có giá trị.",
+            "Vai trò mentor/cố vấn cho thế hệ trẻ trở nên quan trọng hơn.",
+            "Kiểm tra sức khoẻ định kỳ, chú ý huyết áp - tim mạch - đường huyết.",
+        ]
+    if age <= 70:
+        return [
+            "Tiền cao tuổi: giữ thói quen vận động nhẹ và kết nối xã hội thường xuyên.",
+            "Sắp xếp tài sản, di chúc và phân chia trách nhiệm gia đình rõ ràng.",
+        ]
+    return [
+        "Cao tuổi: ưu tiên an yên, dinh dưỡng, giấc ngủ và sự đồng hành của con cháu.",
+        "Hoạt động tinh thần (đọc sách, thiền, viết hồi ký) giúp giữ trí tuệ minh mẫn.",
+    ]
+
+
+def _birth_order_lines(
+    order: int | None, total: int, hanh: str, gender: str
+) -> list[str]:
+    if order is None or total <= 0:
+        return []
+    if total == 1:
+        return [
+            "Con duy nhất: dễ được tập trung nguồn lực, nhưng cũng dễ áp lực 'kỳ vọng kép'. "
+            "Bố mẹ nên tạo cơ hội cho con tương tác với anh chị em họ để phát triển kỹ năng xã hội.",
+            f"Bản mệnh **{hanh}** sẽ thể hiện rõ hơn khi không bị 'pha loãng' bởi anh chị em - "
+            "vừa là điểm mạnh vừa là điểm dễ cực đoan, cần được hướng dẫn cân bằng.",
+        ]
+    if order == 1:
+        return [
+            "**Con đầu (con cả)**: thường có xu hướng trách nhiệm, chỉn chu, đôi khi cầu toàn. "
+            "Có vai trò 'làm gương' tự nhiên cho các em.",
+            "Bố mẹ nên tránh đặt quá nhiều kỳ vọng và để con cả được quyền 'làm trẻ con' đúng tuổi.",
+            f"Kết hợp với bản mệnh **{hanh}**: cần cân bằng giữa nghĩa vụ làm gương và nhu cầu được công nhận cá nhân.",
+        ]
+    if order == total:
+        return [
+            "**Con út**: thường được chiều hơn, dễ phát triển tính sáng tạo và hài hước, "
+            "nhưng cũng có nguy cơ thiếu kỷ luật và phụ thuộc lâu hơn.",
+            "Bố mẹ nên trao trách nhiệm phù hợp tuổi sớm để con tự lập, tránh 'em bé hoá' kéo dài.",
+            f"Bản mệnh **{hanh}**: phát huy khi được tự do thử nghiệm, cần ranh giới rõ ràng để không 'bay' quá xa.",
+        ]
+    return [
+        f"**Con thứ {order}**: ở giữa - có xu hướng thương lượng, hoà giải, linh hoạt. "
+        "Đôi khi cảm thấy 'không nổi bật' so với anh/chị/em - cần được công nhận điểm khác biệt riêng.",
+        f"Bản mệnh **{hanh}**: kết hợp với vị trí giữa giúp con phát triển khả năng kết nối và đồng cảm.",
+        "Bố mẹ nên tạo những khoảnh khắc 'riêng với con' để con không cảm thấy bị lu mờ.",
+    ]
 
 
 def generate_fallback_chat_response(

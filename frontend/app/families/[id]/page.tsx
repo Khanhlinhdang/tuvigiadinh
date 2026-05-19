@@ -4,7 +4,7 @@ import { useState, useEffect, use } from "react";
 import Link from "next/link";
 import ReactMarkdown from "react-markdown";
 import remarkGfm from "remark-gfm";
-import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, MemberForecast, PairCompatibility } from "@/lib/api";
+import { api, Family, FamilyAnalysis, FamilyForecast, FamilyMember, MemberForecast, PairCompatibility, SavedAnalysisSummary, SavedAnalysisDetail } from "@/lib/api";
 import { RadarChart, Radar, PolarGrid, PolarAngleAxis, ResponsiveContainer, Tooltip } from "recharts";
 
 const HANH_COLORS: Record<string, string> = {
@@ -18,7 +18,7 @@ const HANH_COLORS: Record<string, string> = {
 const ROLES = ["chồng", "vợ", "con", "cha", "mẹ", "anh", "chị", "em"];
 const HOURS = ["Tý", "Sửu", "Dần", "Mão", "Thìn", "Tị", "Ngọ", "Mùi", "Thân", "Dậu", "Tuất", "Hợi"];
 
-type Tab = "members" | "analysis" | "forecast" | "chat";
+type Tab = "members" | "analysis" | "forecast" | "chat" | "saved";
 
 export default function FamilyDetailPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = use(params);
@@ -37,11 +37,18 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   const [chatInput, setChatInput] = useState("");
   const [chatLoading, setChatLoading] = useState(false);
   const [error, setError] = useState("");
+  const [editingMember, setEditingMember] = useState<FamilyMember | null>(null);
+  const [showEditFamily, setShowEditFamily] = useState(false);
+  const [savedList, setSavedList] = useState<SavedAnalysisSummary[]>([]);
+  const [savedDetail, setSavedDetail] = useState<SavedAnalysisDetail | null>(null);
+  const [savingAnalysis, setSavingAnalysis] = useState(false);
+  const [analysisProgress, setAnalysisProgress] = useState(0);
 
   const [memberForm, setMemberForm] = useState({
     name: "",
     role: "con",
     gender: "nam",
+    occupation: "",
     birth_year: 1990,
     birth_month: "",
     birth_day: "",
@@ -71,6 +78,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
         name: memberForm.name,
         role: memberForm.role,
         gender: memberForm.gender,
+        occupation: memberForm.occupation || undefined,
         birth_year: memberForm.birth_year,
         birth_month: memberForm.birth_month ? parseInt(memberForm.birth_month) : undefined,
         birth_day: memberForm.birth_day ? parseInt(memberForm.birth_day) : undefined,
@@ -81,10 +89,33 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
         prev ? { ...prev, members: [...prev.members, newMember] } : prev
       );
       setShowAddMember(false);
-      setMemberForm({ name: "", role: "con", gender: "nam", birth_year: 1990, birth_month: "", birth_day: "", birth_calendar: "solar", is_leap_month: false });
+      setMemberForm({ name: "", role: "con", gender: "nam", occupation: "", birth_year: 1990, birth_month: "", birth_day: "", birth_calendar: "solar", is_leap_month: false });
       setAnalysis(null);
     } catch (e: unknown) {
       setError("Không thể thêm thành viên.");
+    }
+  }
+
+  async function saveMemberEdits(memberId: number, patch: Partial<{ name: string; role: string; gender: string; occupation: string; birth_year: number; birth_month: number; birth_day: number; birth_calendar: 'solar' | 'lunar'; is_leap_month: boolean }>) {
+    try {
+      const updated = await api.updateMember(familyId, memberId, patch);
+      setFamily((prev) => prev ? { ...prev, members: prev.members.map((m) => m.id === memberId ? updated : m) } : prev);
+      setAnalysis(null);
+      setEditingMember(null);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Lỗi cập nhật";
+      setError(`Không thể cập nhật: ${msg}`);
+    }
+  }
+
+  async function saveFamilyEdits(patch: { name?: string; description?: string }) {
+    try {
+      const updated = await api.updateFamily(familyId, patch);
+      setFamily((prev) => prev ? { ...prev, name: updated.name, description: updated.description } : prev);
+      setShowEditFamily(false);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Lỗi cập nhật";
+      setError(`Không thể cập nhật gia đình: ${msg}`);
     }
   }
 
@@ -104,14 +135,77 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   async function loadAnalysis() {
     if (analysis) return;
     setAnalysisLoading(true);
+    setAnalysisProgress(5);
+    // Simulated progress while waiting for backend - backend doesn't
+    // stream progress, so we ease toward 90% then snap to 100% on done.
+    const tick = setInterval(() => {
+      setAnalysisProgress((p) => {
+        if (p >= 90) return p;
+        // Slower as we approach 90%
+        const delta = p < 40 ? 6 : p < 70 ? 3 : 1;
+        return Math.min(90, p + delta);
+      });
+    }, 350);
     try {
       const data = await api.getFamilyAnalysis(familyId);
+      setAnalysisProgress(100);
       setAnalysis(data);
     } catch (e: unknown) {
       const errMsg = e instanceof Error ? e.message : "Lỗi không xác định";
       setError(`Không thể phân tích: ${errMsg}`);
     } finally {
-      setAnalysisLoading(false);
+      clearInterval(tick);
+      // small delay so the user sees the bar reach 100%
+      setTimeout(() => setAnalysisLoading(false), 250);
+    }
+  }
+
+  async function loadSaved() {
+    try {
+      const list = await api.listSavedAnalyses(familyId);
+      setSavedList(list);
+    } catch {
+      // ignore
+    }
+  }
+
+  async function saveCurrentAnalysis() {
+    setSavingAnalysis(true);
+    try {
+      const title = prompt("Đặt tên cho bản phân tích này:", `Phân tích ${new Date().toLocaleDateString("vi-VN")}`);
+      if (title === null) {
+        setSavingAnalysis(false);
+        return;
+      }
+      const saved = await api.saveAnalysis(familyId, { title: title || undefined });
+      await loadSaved();
+      alert(`Đã lưu bản phân tích "${saved.title}" thành công.`);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Lỗi";
+      setError(`Không thể lưu phân tích: ${msg}`);
+    } finally {
+      setSavingAnalysis(false);
+    }
+  }
+
+  async function openSaved(id: number) {
+    try {
+      const detail = await api.getSavedAnalysis(id);
+      setSavedDetail(detail);
+    } catch (e: unknown) {
+      const msg = e instanceof Error ? e.message : "Lỗi";
+      setError(`Không thể mở bản đã lưu: ${msg}`);
+    }
+  }
+
+  async function removeSaved(id: number) {
+    if (!confirm("Xóa bản phân tích đã lưu?")) return;
+    try {
+      await api.deleteSavedAnalysis(id);
+      setSavedList((prev) => prev.filter((s) => s.id !== id));
+      if (savedDetail?.id === id) setSavedDetail(null);
+    } catch {
+      // ignore
     }
   }
 
@@ -157,6 +251,9 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
     if (tab === "forecast" && !forecast) {
       loadForecast();
     }
+    if (tab === "saved") {
+      loadSaved();
+    }
   }
 
   if (loading) {
@@ -184,13 +281,26 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
   return (
     <div className="max-w-6xl mx-auto px-4 py-8">
       {/* Header */}
-      <div className="flex items-center gap-4 mb-6">
-        <Link href="/families" className="text-purple-600 hover:underline text-sm">
-          ← Danh sách gia đình
-        </Link>
-        <span style={{ color: "var(--muted)" }}>/</span>
-        <h1 className="text-2xl font-bold gradient-text">{family.name}</h1>
+      <div className="flex items-center justify-between gap-4 mb-6">
+        <div className="flex items-center gap-4">
+          <Link href="/families" className="text-purple-600 hover:underline text-sm">
+            ← Danh sách gia đình
+          </Link>
+          <span style={{ color: "var(--muted)" }}>/</span>
+          <h1 className="text-2xl font-bold gradient-text">{family.name}</h1>
+        </div>
+        <button
+          onClick={() => setShowEditFamily(true)}
+          className="px-3 py-1.5 rounded-lg text-xs font-medium"
+          style={{ background: "#f3e8ff", color: "#6d28d9", border: "1px solid #e9d5ff" }}
+          title="Chỉnh sửa thông tin gia đình"
+        >
+          ✏️ Sửa thông tin
+        </button>
       </div>
+      {family.description && (
+        <p className="mb-4 text-sm" style={{ color: "var(--muted)" }}>{family.description}</p>
+      )}
 
       {error && (
         <div
@@ -211,6 +321,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
           { key: "members" as Tab, label: "👥 Thành Viên" },
           { key: "analysis" as Tab, label: "🔮 Phân Tích" },
           { key: "forecast" as Tab, label: "🗓️ Dự Báo" },
+          { key: "saved" as Tab, label: "💾 Đã Lưu" },
           { key: "chat" as Tab, label: "🤖 AI Cố Vấn" },
         ].map((tab) => (
           <button
@@ -267,6 +378,7 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
                   key={member.id}
                   member={member}
                   onDelete={() => deleteMember(member.id)}
+                  onEdit={() => setEditingMember(member)}
                 />
               ))}
             </div>
@@ -288,14 +400,39 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
       {activeTab === "analysis" && (
         <div>
           {analysisLoading && (
-            <div className="text-center py-20">
-              <div className="text-4xl mb-4 pulse-soft">🔮</div>
-              <p style={{ color: "var(--muted)" }}>Đang phân tích tương hợp...</p>
+            <div className="py-16">
+              <div className="max-w-md mx-auto text-center">
+                <div className="text-4xl mb-4 pulse-soft">🔮</div>
+                <p className="mb-3 font-semibold">Đang phân tích tử vi gia đình...</p>
+                <p className="text-xs mb-4" style={{ color: "var(--muted)" }}>
+                  {analysisProgress < 30
+                    ? "Đang đọc dữ liệu thành viên..."
+                    : analysisProgress < 60
+                    ? "Tính toán Can - Chi, Ngũ hành, tương sinh tương khắc..."
+                    : analysisProgress < 90
+                    ? "Đang gọi AI để tổng hợp diễn giải chiều sâu..."
+                    : "Hoàn tất..."}
+                </p>
+                <ProgressBar value={analysisProgress} />
+                <p className="text-xs mt-2" style={{ color: "var(--muted)" }}>{Math.round(analysisProgress)}%</p>
+              </div>
             </div>
           )}
 
           {!analysisLoading && analysis && (
-            <AnalysisView analysis={analysis} onRefresh={() => { setAnalysis(null); loadAnalysis(); }} />
+            <>
+              <div className="flex justify-end gap-2 mb-3">
+                <button
+                  onClick={saveCurrentAnalysis}
+                  disabled={savingAnalysis}
+                  className="px-4 py-2 rounded-lg text-sm font-semibold disabled:opacity-50"
+                  style={{ background: "#f3e8ff", color: "#6d28d9", border: "1px solid #e9d5ff" }}
+                >
+                  {savingAnalysis ? "Đang lưu..." : "💾 Lưu kết quả này"}
+                </button>
+              </div>
+              <AnalysisView analysis={analysis} onRefresh={() => { setAnalysis(null); loadAnalysis(); }} />
+            </>
           )}
 
           {!analysisLoading && !analysis && (
@@ -314,6 +451,17 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
             </div>
           )}
         </div>
+      )}
+
+      {/* Saved Analyses Tab */}
+      {activeTab === "saved" && (
+        <SavedAnalysesView
+          list={savedList}
+          detail={savedDetail}
+          onOpen={openSaved}
+          onClose={() => setSavedDetail(null)}
+          onDelete={removeSaved}
+        />
       )}
 
       {/* Forecast Tab */}
@@ -355,13 +503,51 @@ export default function FamilyDetailPage({ params }: { params: Promise<{ id: str
           familyName={family.name}
         />
       )}
+
+      {showEditFamily && (
+        <EditFamilyModal
+          initial={{ name: family.name, description: family.description || "" }}
+          onSubmit={saveFamilyEdits}
+          onClose={() => setShowEditFamily(false)}
+        />
+      )}
+
+      {editingMember && (
+        <EditMemberModal
+          member={editingMember}
+          onSubmit={(patch) => saveMemberEdits(editingMember.id, patch)}
+          onClose={() => setEditingMember(null)}
+        />
+      )}
     </div>
   );
 }
 
 // ============ Sub Components ============
 
-function MemberCard({ member, onDelete }: { member: FamilyMember; onDelete: () => void }) {
+function ProgressBar({ value }: { value: number }) {
+  const v = Math.max(0, Math.min(100, value));
+  return (
+    <div
+      className="w-full h-3 rounded-full overflow-hidden"
+      role="progressbar"
+      aria-valuenow={v}
+      aria-valuemin={0}
+      aria-valuemax={100}
+      style={{ background: "#f3f4f6" }}
+    >
+      <div
+        className="h-full transition-all duration-300 ease-out"
+        style={{
+          width: `${v}%`,
+          background: "linear-gradient(90deg, #8b5cf6, #ec4899)",
+        }}
+      />
+    </div>
+  );
+}
+
+function MemberCard({ member, onDelete, onEdit }: { member: FamilyMember; onDelete: () => void; onEdit: () => void }) {
   const color = HANH_COLORS[member.ngu_hanh || ""] || "#8b5cf6";
 
   return (
@@ -400,13 +586,29 @@ function MemberCard({ member, onDelete }: { member: FamilyMember; onDelete: () =
             )}
           </div>
         </div>
-        <button
-          onClick={onDelete}
-          className="text-gray-300 hover:text-red-500 text-sm"
-        >
-          ✕
-        </button>
+        <div className="flex items-center gap-1">
+          <button
+            onClick={onEdit}
+            className="text-gray-300 hover:text-purple-500 text-sm"
+            title="Chỉnh sửa"
+          >
+            ✏️
+          </button>
+          <button
+            onClick={onDelete}
+            className="text-gray-300 hover:text-red-500 text-sm"
+            title="Xóa"
+          >
+            ✕
+          </button>
+        </div>
       </div>
+
+      {member.occupation && (
+        <div className="mb-2 text-xs px-2 py-1 rounded-md inline-block" style={{ background: "#f0fdf4", color: "#166534" }}>
+          💼 {member.occupation}
+        </div>
+      )}
 
       {member.thien_can && (
         <div className="space-y-2">
@@ -448,6 +650,7 @@ interface AddMemberModalProps {
     name: string;
     role: string;
     gender: string;
+    occupation: string;
     birth_year: number;
     birth_month: string;
     birth_day: string;
@@ -510,6 +713,21 @@ function AddMemberModal({ form, onChange, onSubmit, onClose }: AddMemberModalPro
                 <option value="nữ">Nữ</option>
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Nghề nghiệp</label>
+            <input
+              type="text"
+              value={form.occupation}
+              onChange={(e) => onChange({ ...form, occupation: e.target.value })}
+              placeholder="VD: kỹ sư phần mềm, giáo viên, học sinh..."
+              className="w-full px-4 py-3 rounded-xl text-sm"
+              style={{ border: "1px solid var(--border)", outline: "none" }}
+            />
+            <p className="text-xs mt-1" style={{ color: "var(--muted)" }}>
+              Nghề nghiệp giúp phân tích sâu hơn về sự nghiệp và mệnh ngũ hành.
+            </p>
           </div>
 
           <div>
@@ -1445,6 +1663,388 @@ function MarkdownContent({ content, compact = false }: { content: string; compac
       >
         {content}
       </ReactMarkdown>
+    </div>
+  );
+}
+
+// ============ Edit Family Modal ============
+
+function EditFamilyModal({
+  initial,
+  onSubmit,
+  onClose,
+}: {
+  initial: { name: string; description: string };
+  onSubmit: (patch: { name?: string; description?: string }) => void;
+  onClose: () => void;
+}) {
+  const [name, setName] = useState(initial.name);
+  const [description, setDescription] = useState(initial.description);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 fade-in"
+        style={{ background: "white" }}
+      >
+        <h2 className="text-xl font-bold mb-4">Chỉnh sửa gia đình</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const patch: { name?: string; description?: string } = {};
+            if (name.trim() && name.trim() !== initial.name) patch.name = name.trim();
+            if (description !== initial.description) patch.description = description;
+            if (Object.keys(patch).length === 0) {
+              onClose();
+              return;
+            }
+            onSubmit(patch);
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="block text-sm font-medium mb-1">Tên gia đình *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl text-sm"
+              style={{ border: "1px solid var(--border)", outline: "none" }}
+              required
+            />
+          </div>
+          <div>
+            <label className="block text-sm font-medium mb-1">Mô tả</label>
+            <textarea
+              value={description}
+              onChange={(e) => setDescription(e.target.value)}
+              rows={3}
+              className="w-full px-4 py-3 rounded-xl text-sm"
+              style={{ border: "1px solid var(--border)", outline: "none" }}
+            />
+          </div>
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              className="flex-1 py-3 rounded-xl text-white font-semibold"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+            >
+              Lưu thay đổi
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-3 rounded-xl font-semibold"
+              style={{ background: "#f3f4f6" }}
+            >
+              Hủy
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============ Edit Member Modal ============
+
+function EditMemberModal({
+  member,
+  onSubmit,
+  onClose,
+}: {
+  member: FamilyMember;
+  onSubmit: (patch: Partial<{ name: string; role: string; gender: string; occupation: string; birth_year: number; birth_month: number; birth_day: number; birth_calendar: 'solar' | 'lunar'; is_leap_month: boolean }>) => void;
+  onClose: () => void;
+}) {
+  const ROLES = ["chồng", "vợ", "con", "cha", "mẹ", "anh", "chị", "em"];
+  const [name, setName] = useState(member.name);
+  const [role, setRole] = useState(member.role);
+  const [gender, setGender] = useState(member.gender);
+  const [occupation, setOccupation] = useState(member.occupation || "");
+  const [birthYear, setBirthYear] = useState(member.birth_year);
+  const [birthMonth, setBirthMonth] = useState(member.birth_month ? String(member.birth_month) : "");
+  const [birthDay, setBirthDay] = useState(member.birth_day ? String(member.birth_day) : "");
+  const [birthCalendar, setBirthCalendar] = useState<"solar" | "lunar">(member.birth_calendar || "solar");
+  const [isLeapMonth, setIsLeapMonth] = useState<boolean>(!!member.is_leap_month);
+
+  return (
+    <div
+      className="fixed inset-0 z-50 flex items-center justify-center p-4"
+      style={{ background: "rgba(0,0,0,0.5)" }}
+    >
+      <div
+        className="w-full max-w-md rounded-2xl p-6 fade-in max-h-screen overflow-y-auto"
+        style={{ background: "white" }}
+      >
+        <h2 className="text-xl font-bold mb-4">Chỉnh sửa thành viên</h2>
+        <form
+          onSubmit={(e) => {
+            e.preventDefault();
+            const patch: Parameters<typeof onSubmit>[0] = {};
+            if (name.trim() && name.trim() !== member.name) patch.name = name.trim();
+            if (role !== member.role) patch.role = role;
+            if (gender !== member.gender) patch.gender = gender;
+            if (occupation !== (member.occupation || "")) patch.occupation = occupation;
+            if (birthYear !== member.birth_year) patch.birth_year = birthYear;
+            const newMonth = birthMonth ? parseInt(birthMonth) : undefined;
+            if (newMonth !== member.birth_month) patch.birth_month = newMonth as number;
+            const newDay = birthDay ? parseInt(birthDay) : undefined;
+            if (newDay !== member.birth_day) patch.birth_day = newDay as number;
+            if (birthCalendar !== (member.birth_calendar || "solar")) patch.birth_calendar = birthCalendar;
+            if (isLeapMonth !== !!member.is_leap_month) patch.is_leap_month = isLeapMonth;
+            if (Object.keys(patch).length === 0) {
+              onClose();
+              return;
+            }
+            onSubmit(patch);
+          }}
+          className="space-y-4"
+        >
+          <div>
+            <label className="block text-sm font-medium mb-1">Tên *</label>
+            <input
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              className="w-full px-4 py-3 rounded-xl text-sm"
+              style={{ border: "1px solid var(--border)", outline: "none" }}
+              required
+            />
+          </div>
+
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Vai trò</label>
+              <select
+                value={role}
+                onChange={(e) => setRole(e.target.value)}
+                className="w-full px-3 py-3 rounded-xl text-sm"
+                style={{ border: "1px solid var(--border)", outline: "none" }}
+              >
+                {ROLES.map((r) => (
+                  <option key={r} value={r}>{r}</option>
+                ))}
+              </select>
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Giới tính</label>
+              <select
+                value={gender}
+                onChange={(e) => setGender(e.target.value)}
+                className="w-full px-3 py-3 rounded-xl text-sm"
+                style={{ border: "1px solid var(--border)", outline: "none" }}
+              >
+                <option value="nam">Nam</option>
+                <option value="nữ">Nữ</option>
+              </select>
+            </div>
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Nghề nghiệp</label>
+            <input
+              type="text"
+              value={occupation}
+              onChange={(e) => setOccupation(e.target.value)}
+              placeholder="VD: bác sĩ, kỹ sư, học sinh..."
+              className="w-full px-4 py-3 rounded-xl text-sm"
+              style={{ border: "1px solid var(--border)", outline: "none" }}
+            />
+          </div>
+
+          <div>
+            <label className="block text-sm font-medium mb-1">Loại lịch *</label>
+            <div className="flex gap-2">
+              {(["solar", "lunar"] as const).map((cal) => (
+                <button
+                  key={cal}
+                  type="button"
+                  onClick={() => setBirthCalendar(cal)}
+                  className="flex-1 py-2 px-3 rounded-xl text-sm font-medium"
+                  style={{
+                    background: birthCalendar === cal
+                      ? "linear-gradient(135deg, #8b5cf6, #ec4899)"
+                      : "#f3f4f6",
+                    color: birthCalendar === cal ? "white" : "var(--foreground)",
+                    border: "1px solid var(--border)",
+                  }}
+                >
+                  {cal === "solar" ? "☀️ Dương lịch" : "🌙 Âm lịch"}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="grid grid-cols-3 gap-3">
+            <div>
+              <label className="block text-sm font-medium mb-1">Năm *</label>
+              <input
+                type="number"
+                value={birthYear}
+                onChange={(e) => setBirthYear(parseInt(e.target.value))}
+                className="w-full px-3 py-3 rounded-xl text-sm"
+                style={{ border: "1px solid var(--border)", outline: "none" }}
+                required
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Tháng</label>
+              <input
+                type="number"
+                value={birthMonth}
+                onChange={(e) => setBirthMonth(e.target.value)}
+                placeholder="1-12"
+                min={1}
+                max={12}
+                className="w-full px-3 py-3 rounded-xl text-sm"
+                style={{ border: "1px solid var(--border)", outline: "none" }}
+              />
+            </div>
+            <div>
+              <label className="block text-sm font-medium mb-1">Ngày</label>
+              <input
+                type="number"
+                value={birthDay}
+                onChange={(e) => setBirthDay(e.target.value)}
+                placeholder="1-31"
+                min={1}
+                max={31}
+                className="w-full px-3 py-3 rounded-xl text-sm"
+                style={{ border: "1px solid var(--border)", outline: "none" }}
+              />
+            </div>
+          </div>
+
+          {birthCalendar === "lunar" && (
+            <label className="flex items-center gap-2 text-sm cursor-pointer">
+              <input
+                type="checkbox"
+                checked={isLeapMonth}
+                onChange={(e) => setIsLeapMonth(e.target.checked)}
+              />
+              <span>Tháng nhuận</span>
+            </label>
+          )}
+
+          <div className="flex gap-3 pt-2">
+            <button
+              type="submit"
+              className="flex-1 py-3 rounded-xl text-white font-semibold"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+            >
+              Lưu thay đổi
+            </button>
+            <button
+              type="button"
+              onClick={onClose}
+              className="px-6 py-3 rounded-xl font-semibold"
+              style={{ background: "#f3f4f6" }}
+            >
+              Hủy
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+// ============ Saved Analyses View ============
+
+function SavedAnalysesView({
+  list,
+  detail,
+  onOpen,
+  onClose,
+  onDelete,
+}: {
+  list: SavedAnalysisSummary[];
+  detail: SavedAnalysisDetail | null;
+  onOpen: (id: number) => void;
+  onClose: () => void;
+  onDelete: (id: number) => void;
+}) {
+  if (detail) {
+    return (
+      <div>
+        <div className="flex items-center justify-between mb-3">
+          <div>
+            <h2 className="text-lg font-bold">{detail.title || `Phân tích #${detail.id}`}</h2>
+            <p className="text-xs" style={{ color: "var(--muted)" }}>
+              Lưu lúc {new Date(detail.created_at).toLocaleString("vi-VN")}
+            </p>
+          </div>
+          <button
+            onClick={onClose}
+            className="px-3 py-1.5 rounded-lg text-sm"
+            style={{ background: "#f3f4f6" }}
+          >
+            ← Quay lại danh sách
+          </button>
+        </div>
+        <AnalysisView analysis={detail.payload} onRefresh={() => {}} />
+      </div>
+    );
+  }
+
+  if (list.length === 0) {
+    return (
+      <div
+        className="text-center py-16 rounded-2xl"
+        style={{ border: "2px dashed var(--border)" }}
+      >
+        <div className="text-4xl mb-3">💾</div>
+        <p style={{ color: "var(--muted)" }}>
+          Chưa có bản phân tích nào được lưu. Hãy chạy phân tích và bấm
+          &quot;Lưu kết quả này&quot;.
+        </p>
+      </div>
+    );
+  }
+
+  return (
+    <div className="space-y-3">
+      {list.map((s) => (
+        <div
+          key={s.id}
+          className="p-4 rounded-2xl flex items-center justify-between"
+          style={{ background: "white", border: "1px solid var(--border)" }}
+        >
+          <div className="flex-1">
+            <div className="font-semibold">{s.title || `Phân tích #${s.id}`}</div>
+            <div className="text-xs" style={{ color: "var(--muted)" }}>
+              {new Date(s.created_at).toLocaleString("vi-VN")}
+              {typeof s.family_overall_score === "number" && (
+                <> · Điểm: {s.family_overall_score}/100</>
+              )}
+              {s.analysis_mode && <> · {s.analysis_mode === "online" ? "AI" : "Offline"}</>}
+            </div>
+            {s.note && (
+              <div className="text-xs mt-1" style={{ color: "var(--muted)" }}>{s.note}</div>
+            )}
+          </div>
+          <div className="flex gap-2">
+            <button
+              onClick={() => onOpen(s.id)}
+              className="px-3 py-1.5 rounded-lg text-sm text-white"
+              style={{ background: "linear-gradient(135deg, #8b5cf6, #ec4899)" }}
+            >
+              Xem
+            </button>
+            <button
+              onClick={() => onDelete(s.id)}
+              className="px-3 py-1.5 rounded-lg text-sm"
+              style={{ background: "#fee2e2", color: "#dc2626" }}
+            >
+              Xóa
+            </button>
+          </div>
+        </div>
+      ))}
     </div>
   );
 }

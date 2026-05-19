@@ -16,6 +16,28 @@ Kết hợp tri thức **Can Chi - Ngu Hanh** truyền thống với **AI hiện
 | AI Co Van | Chat AI hieu tu vi Dong phuong, tu van ca nhan hoa |
 | Du Bao Nam | Phan tich van khi tung thanh vien, canh bao Thai Tue |
 | Khuyen Nghi | Loi khuyen thuc te ve giao tiep, tai chinh, giao duc |
+| Google Login | Dang nhap bang tai khoan Google de luu ho so rieng |
+| Luu / Sua Ho So | Sua thong tin gia dinh va tung thanh vien (bao gom **nghe nghiep**) |
+| Luu Ket Qua | Luu nhieu ban phan tich, xem lai theo thoi gian |
+| Process Bar | Hien thi tien do khi cho ket qua phan tich |
+| Thu Tu Sinh | Tu dong gan nhan con dau / con thu / con ut theo ngay sinh |
+
+---
+
+## Bien moi truong (auth)
+
+Backend (`backend/.env`):
+- `GOOGLE_CLIENT_ID` - Client ID cua Google OAuth 2.0 (Web)
+- `JWT_SECRET` - Khoa bi mat de ky JWT (doi sang chuoi ngau nhien dai)
+- `AUTH_ENABLED` - `true` (mac dinh) yeu cau dang nhap; dat `false` de tat auth cho dev
+
+Frontend (`frontend/.env.local`):
+- `NEXT_PUBLIC_GOOGLE_CLIENT_ID` - Cung gia tri voi backend
+- `NEXT_PUBLIC_API_URL` - URL cua backend (mac dinh `http://localhost:8000`)
+
+Lay Client ID tai Google Cloud Console > APIs & Services > Credentials >
+OAuth 2.0 Client IDs (Application type: Web), va them URL frontend
+(vd `http://localhost:3000`) vao "Authorized JavaScript origins".
 
 ---
 
