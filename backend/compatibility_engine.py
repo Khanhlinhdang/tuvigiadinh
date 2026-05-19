@@ -15,6 +15,9 @@ from astrology_engine import (
 from data_sources import citations_for, explain
 from typing import List, Dict
 
+MAX_EXECUTIVE_STRENGTHS = 3
+MAX_EXECUTIVE_RISKS = 3
+
 
 def get_compatibility_level(score: int) -> str:
     """Convert numeric score to compatibility level"""
@@ -521,6 +524,14 @@ def _pair_summary(pair: dict | None) -> dict | None:
     }
 
 
+def _sinh_khac_type(pair: dict) -> str:
+    sinh_khac = pair.get("sinh_khac")
+    if not isinstance(sinh_khac, dict):
+        return ""
+    value = sinh_khac.get("type")
+    return value if isinstance(value, str) else ""
+
+
 def build_executive_summary(
     members: List[dict],
     pairs_analysis: List[dict],
@@ -538,8 +549,8 @@ def build_executive_summary(
     dominant_hanh = max(energy_distribution, key=energy_distribution.get) if energy_distribution else ""
     energy_keeper = energy_roles[0] if energy_roles else None
 
-    sinh_pairs = [p for p in pairs_analysis if "sinh" in ((p.get("sinh_khac") or {}).get("type") or "")]
-    khac_pairs = [p for p in pairs_analysis if "khac" in ((p.get("sinh_khac") or {}).get("type") or "")]
+    sinh_pairs = [p for p in pairs_analysis if "sinh" in _sinh_khac_type(p)]
+    khac_pairs = [p for p in pairs_analysis if "khac" in _sinh_khac_type(p)]
     xung_pairs = [
         p for p in pairs_analysis
         if (p.get("chi_compatibility") or {}).get("primary_relation") == "xung"
@@ -561,7 +572,7 @@ def build_executive_summary(
         )
     if sinh_pairs:
         strengths.append(f"Có {len(sinh_pairs)} cặp tương sinh, phù hợp để cùng học hỏi, hỗ trợ và phát triển dài hạn.")
-    strengths = strengths[:3]
+    strengths = strengths[:MAX_EXECUTIVE_STRENGTHS]
 
     risks = []
     if khac_pairs:
@@ -575,7 +586,7 @@ def build_executive_summary(
         )
     if not risks:
         risks.append("Chưa thấy xung khắc nổi bật, nhưng vẫn nên duy trì thói quen lắng nghe và cảm ơn nhau.")
-    risks = risks[:3]
+    risks = risks[:MAX_EXECUTIVE_RISKS]
 
     actions = [
         "Mỗi tuần chọn một buổi trò chuyện gia đình không điện thoại trong 20-30 phút.",
