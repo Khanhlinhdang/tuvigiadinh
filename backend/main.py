@@ -3,6 +3,7 @@ Tử Vi Gia Đình - Family Relationship Intelligence System
 FastAPI Backend
 """
 import os
+import logging
 from contextlib import asynccontextmanager
 from fastapi import FastAPI, HTTPException, Depends, Query
 from fastapi.middleware.cors import CORSMiddleware
@@ -32,6 +33,8 @@ from auth import (
     get_current_user_factory,
     auth_enabled,
 )
+
+logger = logging.getLogger(__name__)
 
 load_dotenv()
 
@@ -318,7 +321,12 @@ def auth_config():
 @app.post("/api/auth/google", response_model=TokenResponse)
 def login_with_google(req: GoogleLoginRequest, db: Session = Depends(get_db)):
     """Exchange a Google ID token for an application JWT."""
-    info = verify_google_id_token(req.credential)
+    try:
+        info = verify_google_id_token(req.credential)
+    except HTTPException as e:
+        # Log reason only (never log raw credential/token).
+        logger.warning("Google login rejected: %s", e.detail)
+        raise
     user = upsert_user_from_google(db, info)
     token = create_access_token(user)
     return TokenResponse(access_token=token, user=UserResponse.model_validate(user))

@@ -28,6 +28,7 @@ Kết hợp tri thức **Can Chi - Ngu Hanh** truyền thống với **AI hiện
 
 Backend (`backend/.env`):
 - `GOOGLE_CLIENT_ID` - Client ID cua Google OAuth 2.0 (Web)
+- `GOOGLE_TOKEN_CLOCK_SKEW_SECONDS` - Do lech thoi gian cho phep khi xac minh Google token (mac dinh `60`)
 - `JWT_SECRET` - Khoa bi mat de ky JWT (doi sang chuoi ngau nhien dai)
 - `AUTH_ENABLED` - `true` (mac dinh) yeu cau dang nhap; dat `false` de tat auth cho dev
 - `DEV_MODE` - `false` (mac dinh), chi dat `true` khi dev local dac biet
@@ -37,7 +38,7 @@ Frontend (`frontend/.env.local`):
 
 Docker Compose (`.env` o thu muc goc):
 - `GOOGLE_CLIENT_ID` - duoc inject vao backend
-- `JWT_SECRET`, `AUTH_ENABLED`, `DEV_MODE`, `OPENAI_API_KEY` (tuy chon)
+- `GOOGLE_TOKEN_CLOCK_SKEW_SECONDS`, `JWT_SECRET`, `AUTH_ENABLED`, `DEV_MODE`, `OPENAI_API_KEY` (tuy chon)
 - `NEXT_PUBLIC_API_URL` (tuy chon, mac dinh `http://localhost:8000`)
 
 Lay Client ID tai Google Cloud Console > APIs & Services > Credentials >

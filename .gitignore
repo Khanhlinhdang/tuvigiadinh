@@ -37,8 +37,6 @@ npm-debug.log*
 .env.development.local
 .env.test.local
 .env.production.local
-client_secret_*.json
-backend/client_secret_*.json
 
 # OS
 .DS_Store
